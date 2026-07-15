@@ -1,0 +1,13 @@
+# Rust (boast ships a binary, so Cargo.lock is committed)
+/target/
+**/*.rs.bk
+
+# Secrets / local config
+.env
+.env.*
+
+# Generated Snapshots (users commit their own where they want them)
+/snapshots/
+
+# OS / editor
+.DS_Store

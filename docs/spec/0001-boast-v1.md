@@ -90,6 +90,7 @@ The name reads as a sentence: `boast about samtools`.
 - **Configuration and secrets.** The Manifest holds Projects only and is committable. Secrets (`GITHUB_TOKEN`, `ALTMETRIC_KEY`, …) come from the environment / `.env`; the polite-pool contact email from env or a user config file. The tool warns when no GitHub token is present.
 - **Report formats (v1).** Terminal table (default), Markdown (primary saved artifact), and a prose snippet. JSON Snapshot always written. HTML (with over-time charts) and CSV are later renderers over the same Snapshot.
 - **HTTP transport abstraction.** All Provider network access flows through a single transport trait — the one injected seam (see Testing Decisions).
+- **No host-native dependencies** (see ADR-0004). No crate that requires a host-installed native library. TLS is **rustls**, never OpenSSL/`native-tls` (e.g. `reqwest` with `default-features = false` + `rustls-tls`, or a rustls-based client such as `ureq`); pure-Rust crates are preferred and `*-sys` crates avoided, so cross-compilation and static `*-musl` builds just work. The concrete HTTP client sits behind the transport seam, so it stays swappable. CI builds/releases static musl targets to prove the constraint.
 
 ## Testing Decisions
 

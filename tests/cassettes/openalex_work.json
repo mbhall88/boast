@@ -1,0 +1,21 @@
+{
+  "id": "https://openalex.org/W2104846587",
+  "doi": "https://doi.org/10.1371/journal.pbio.1002195",
+  "title": "Big Data: Astronomical or Genomical?",
+  "publication_year": 2015,
+  "cited_by_count": 1421,
+  "fwci": 59.9063,
+  "citation_normalized_percentile": {
+    "value": 0.99956924,
+    "is_in_top_1_percent": true,
+    "is_in_top_10_percent": true
+  },
+  "open_access": {
+    "is_oa": true,
+    "oa_status": "gold"
+  },
+  "counts_by_year": [
+    { "year": 2026, "cited_by_count": 47 },
+    { "year": 2025, "cited_by_count": 84 }
+  ]
+}

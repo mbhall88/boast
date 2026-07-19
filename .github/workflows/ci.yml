@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    name: fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain components
+        run: rustup component add rustfmt clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --all
+
+  musl:
+    name: static musl build (ADR-0004)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add x86_64-unknown-linux-musl
+      - name: Build static binary
+        run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Confirm the binary is statically linked
+        run: |
+          file target/x86_64-unknown-linux-musl/release/boast
+          file target/x86_64-unknown-linux-musl/release/boast | grep -q 'static' \
+            && echo "OK: statically linked" || (echo "NOT static" && exit 1)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boast-x86_64-unknown-linux-musl
+          path: target/x86_64-unknown-linux-musl/release/boast

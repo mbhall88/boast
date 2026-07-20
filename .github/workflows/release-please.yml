@@ -14,5 +14,9 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         with:
+          # A PAT (contents + pull-requests write) so release-please can open
+          # the release PR without enabling repo-wide Actions PR creation, and
+          # so the release PR triggers CI.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

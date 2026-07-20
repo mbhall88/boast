@@ -9,7 +9,7 @@ use time::macros::format_description;
 
 use crate::model::{Identity, Project, RepoId};
 use crate::orchestrator;
-use crate::providers::default_providers;
+use crate::providers::default_providers_with_topic;
 use crate::report::render_terminal;
 use crate::transport::UreqTransport;
 
@@ -56,6 +56,11 @@ pub struct AboutArgs {
     /// ignored). Use `-` for stdin. Repeatable.
     #[arg(short = 'f', long = "from-file", value_name = "FILE")]
     pub from_file: Vec<PathBuf>,
+
+    /// GitHub topic to rank repositories within, overriding each repo's own
+    /// declared topics (see the Cohort disclaimer in the report).
+    #[arg(short = 't', long = "topic", value_name = "TOPIC")]
+    pub topic: Option<String>,
 
     /// Directory to write the Snapshot into.
     #[arg(short = 'd', long, default_value = "snapshots", value_name = "DIR")]
@@ -202,7 +207,7 @@ fn run_about(args: AboutArgs) -> i32 {
 
     let project = Project::new(identities);
     let transport = UreqTransport::new();
-    let providers = default_providers();
+    let providers = default_providers_with_topic(args.topic.clone());
 
     let snapshot = orchestrator::run(&project, &providers, &transport);
 

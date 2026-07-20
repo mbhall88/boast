@@ -8,9 +8,15 @@ use crate::provider::Provider;
 
 /// The Providers enabled by default. Later tickets add more here.
 pub fn default_providers() -> Vec<Box<dyn Provider>> {
+    default_providers_with_topic(None)
+}
+
+/// The default set, with an explicit GitHub Cohort `topic` override threaded to
+/// the GitHub Provider. `None` lets each repo rank within every topic it declares.
+pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provider>> {
     vec![
         Box::new(openalex::OpenAlex),
         Box::new(crossref::Crossref),
-        Box::new(github::GitHub::new()),
+        Box::new(github::GitHub::with_topic(topic)),
     ]
 }

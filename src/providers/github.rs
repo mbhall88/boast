@@ -15,6 +15,9 @@ const API: &str = "https://api.github.com";
 
 pub struct GitHub {
     token: Option<String>,
+    /// An explicit topic to rank the repo within, overriding its own declared
+    /// topics. `None` ranks within every topic the repo declares.
+    topic: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -23,6 +26,14 @@ struct GhRepo {
     forks_count: Option<u64>,
     subscribers_count: Option<u64>,
     created_at: Option<String>,
+    #[serde(default)]
+    topics: Vec<String>,
+}
+
+/// A GitHub Search API response; only the `total_count` is needed to rank.
+#[derive(Debug, Deserialize)]
+struct GhSearch {
+    total_count: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,8 +50,15 @@ struct GhAsset {
 
 impl GitHub {
     pub fn new() -> Self {
+        Self::with_topic(None)
+    }
+
+    /// Construct with an explicit Cohort `topic` to rank the repo within. When
+    /// `None`, the repo is ranked within each topic it declares.
+    pub fn with_topic(topic: Option<String>) -> Self {
         Self {
             token: std::env::var("GITHUB_TOKEN").ok().filter(|s| !s.is_empty()),
+            topic,
         }
     }
 
@@ -204,6 +222,38 @@ impl Provider for GitHub {
             );
         }
 
+        // Topic Cohort ranks (ADR-0003): rank by stars among repos carrying a
+        // topic — one rank per topic, either the explicit override or every
+        // topic the repo declares. A failed search omits that topic's rank
+        // (never a fake rank); GitHub caps a repo at 20 topics.
+        let topics: Vec<&str> = match &self.topic {
+            Some(t) => vec![t.as_str()],
+            None => core
+                .topics
+                .iter()
+                .map(String::as_str)
+                .filter(|t| !t.is_empty())
+                .collect(),
+        };
+        if let Some(stars) = core.stargazers_count {
+            for topic in topics {
+                if let Some((rank, cohort_size, source)) =
+                    cohort_rank(transport, topic, stars, &headers)
+                {
+                    let note = format!(
+                        "#{rank} of {cohort_size} repos tagged '{topic}'; \
+                         GitHub topics are inconsistently applied"
+                    );
+                    push(
+                        &format!("cohort_rank ({topic})"),
+                        MetricValue::Count(rank),
+                        &source,
+                        Some(&note),
+                    );
+                }
+            }
+        }
+
         Outcome::Values {
             metrics,
             metadata: None,
@@ -288,6 +338,42 @@ fn release_download_total(
             .map(|a| a.download_count)
             .sum(),
     )
+}
+
+/// Rank a repo by stars within a GitHub topic using the Search API's
+/// `total_count`: one query counts every repo carrying the topic (the Cohort
+/// size), another counts those with strictly more stars (everyone ranked above
+/// this repo). Rank is that count plus one. Returns `(rank, cohort_size,
+/// source_url)`, or `None` if either search fails — never a fabricated rank.
+fn cohort_rank(
+    transport: &dyn Transport,
+    topic: &str,
+    stars: u64,
+    headers: &[(&str, &str)],
+) -> Option<(u64, u64, String)> {
+    let cohort_url = search_url(&format!("topic:{topic}"));
+    let cohort_size = search_count(transport, &cohort_url, headers)?;
+    let above_url = search_url(&format!("topic:{topic} stars:>{stars}"));
+    let above = search_count(transport, &above_url, headers)?;
+    Some((above + 1, cohort_size, above_url))
+}
+
+/// Read the `total_count` from a GitHub repository-search response.
+fn search_count(transport: &dyn Transport, url: &str, headers: &[(&str, &str)]) -> Option<u64> {
+    let resp = transport.get_with_headers(url, headers).ok()?;
+    if resp.status != 200 {
+        return None;
+    }
+    let search: GhSearch = serde_json::from_str(&resp.body).ok()?;
+    Some(search.total_count)
+}
+
+/// Build a repository-search URL for `query`, percent-encoding the only two
+/// characters the query builds in (space → `+`, `>` → `%3E`); topics are
+/// already `[a-z0-9-]` so they need no further encoding.
+fn search_url(query: &str) -> String {
+    let encoded = query.replace(' ', "+").replace('>', "%3E");
+    format!("{API}/search/repositories?q={encoded}&per_page=1")
 }
 
 #[cfg(test)]
@@ -415,13 +501,17 @@ mod tests {
     fn request_headers_include_bearer_only_when_token_present() {
         let with = GitHub {
             token: Some("secret".into()),
+            topic: None,
         };
         let headers = with.request_headers();
         assert!(headers
             .iter()
             .any(|(k, v)| k == "Authorization" && v == "Bearer secret"));
 
-        let without = GitHub { token: None };
+        let without = GitHub {
+            token: None,
+            topic: None,
+        };
         let headers = without.request_headers();
         assert!(!headers.iter().any(|(k, _)| k == "Authorization"));
         assert!(headers.iter().any(|(k, _)| k == "Accept"));
@@ -437,5 +527,112 @@ mod tests {
             parse_last_page("<https://x?per_page=1&page=2>; rel=\"next\""),
             None
         );
+    }
+
+    /// A transport wrapping a repo cassette plus (failing) contributor/release
+    /// routes, so cohort tests exercise only the search calls. The two search
+    /// routes are registered most-specific first: the star-bounded rank query
+    /// contains `stars:`, the plain cohort-size query only `search/repositories`.
+    fn cohort_transport(repo_cassette: &'static str, rank: &str, cohort: &str) -> MockTransport {
+        MockTransport::new()
+            .on("stars:", 200, rank.to_string())
+            .on("search/repositories", 200, cohort.to_string())
+            .on("/contributors", 500, "")
+            .on("/releases", 500, "")
+            .on("api.github.com/repos/", 200, repo_cassette)
+    }
+
+    fn fetch_metrics(gh: &GitHub, t: &MockTransport) -> Vec<Metric> {
+        match gh.fetch(&repo(), t) {
+            Outcome::Values { metrics, .. } => metrics,
+            other => panic!("expected Values, got {other:?}"),
+        }
+    }
+
+    fn cohort_ranks(metrics: &[Metric]) -> impl Iterator<Item = &Metric> {
+        metrics.iter().filter(|m| m.name.starts_with("cohort_rank"))
+    }
+
+    #[test]
+    fn explicit_topic_override_ranks_by_stars_with_disclaimer() {
+        // ripgrep cassette has no topics; the override supplies one. 2 repos
+        // rank above → rank 3, out of a 4821-strong cohort.
+        let t = cohort_transport(
+            include_str!("../../tests/cassettes/github_repo.json"),
+            r#"{"total_count": 2}"#,
+            r#"{"total_count": 4821}"#,
+        );
+        let metrics = fetch_metrics(&GitHub::with_topic(Some("rna-seq".into())), &t);
+        // An explicit override ranks within exactly that one topic.
+        assert_eq!(cohort_ranks(&metrics).count(), 1);
+        let m = metric(&metrics, "cohort_rank (rna-seq)");
+        assert_eq!(m.value, MetricValue::Count(3));
+        let note = m.note.as_deref().unwrap();
+        assert!(note.contains("#3 of 4821"));
+        assert!(note.contains("rna-seq"));
+        assert!(note.contains("inconsistently applied"));
+        assert_eq!(m.category, Category::Code);
+    }
+
+    #[test]
+    fn all_declared_topics_ranked_when_no_override() {
+        // No override → one rank per declared topic (rna-seq, nextflow,
+        // bioinformatics). No repo ranks above → rank 1 in each.
+        let t = cohort_transport(
+            include_str!("../../tests/cassettes/github_repo_topics.json"),
+            r#"{"total_count": 0}"#,
+            r#"{"total_count": 128}"#,
+        );
+        let metrics = fetch_metrics(&GitHub::new(), &t);
+        assert_eq!(cohort_ranks(&metrics).count(), 3);
+        for topic in ["rna-seq", "nextflow", "bioinformatics"] {
+            let m = metric(&metrics, &format!("cohort_rank ({topic})"));
+            assert_eq!(m.value, MetricValue::Count(1));
+            let note = m.note.as_deref().unwrap();
+            assert!(note.contains("#1 of 128"));
+            assert!(note.contains(topic));
+        }
+    }
+
+    #[test]
+    fn no_topic_means_no_cohort_metric() {
+        // Topic-less cassette, no override, and no search route registered: if
+        // fetch tried to rank, the mock would panic. It must not, and the
+        // metric is simply absent.
+        let t = MockTransport::new()
+            .on("/contributors", 500, "")
+            .on("/releases", 500, "")
+            .on(
+                "api.github.com/repos/",
+                200,
+                include_str!("../../tests/cassettes/github_repo.json"),
+            );
+        let metrics = fetch_metrics(&GitHub::new(), &t);
+        assert!(metrics.iter().any(|m| m.name == "stars"));
+        assert_eq!(cohort_ranks(&metrics).count(), 0);
+    }
+
+    #[test]
+    fn cohort_search_failure_omits_metric_never_zero() {
+        // Repo declares a topic, but the search API 500s → cohort omitted, not 0.
+        let t = MockTransport::new()
+            .on("search/repositories", 500, "")
+            .on("/contributors", 500, "")
+            .on("/releases", 500, "")
+            .on(
+                "api.github.com/repos/",
+                200,
+                include_str!("../../tests/cassettes/github_repo_topics.json"),
+            );
+        let metrics = fetch_metrics(&GitHub::new(), &t);
+        assert!(metrics.iter().any(|m| m.name == "stars"));
+        assert_eq!(cohort_ranks(&metrics).count(), 0);
+    }
+
+    #[test]
+    fn search_url_encodes_space_and_gt() {
+        let u = search_url("topic:rna-seq stars:>900");
+        assert!(u.contains("q=topic:rna-seq+stars:%3E900"), "{u}");
+        assert!(u.contains("search/repositories"));
     }
 }

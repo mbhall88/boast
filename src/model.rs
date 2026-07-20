@@ -298,7 +298,8 @@ impl Identity {
     }
 
     /// Parse a user-supplied identifier. Accepts `doi:...`, a bare `10.x/...`
-    /// DOI, a `https://doi.org/...` URL, or `pmid:12345678`.
+    /// DOI, a `https://doi.org/...` URL, `pmid:12345678`, a `github.com/...`
+    /// URL, or a bare `owner/name` GitHub repository shorthand.
     pub fn parse(input: &str) -> Result<Identity, IdentityError> {
         let s = input.trim();
         if s.is_empty() {
@@ -332,9 +333,16 @@ impl Identity {
             return RepoId::parse(s).map(Identity::Repo);
         }
 
-        // Bare DOI: starts with "10." and contains a slash.
+        // Bare DOI: starts with "10." and contains a slash. Checked before the
+        // repo shorthand because GitHub usernames cannot contain dots, so a
+        // `10.x/y` token is unambiguously a DOI.
         if s.starts_with("10.") && s.contains('/') {
             return Ok(Identity::Paper(PaperId::Doi(s.to_string())));
+        }
+
+        // Bare `owner/name` shorthand is treated as a GitHub repository.
+        if s.contains('/') {
+            return RepoId::parse(s).map(Identity::Repo);
         }
 
         Err(IdentityError::Unrecognised(input.to_string()))
@@ -382,12 +390,29 @@ mod tests {
 
     #[test]
     fn rejects_unrecognised() {
-        // A bare `owner/repo` is NOT a positional identity — it must come via --repo.
+        // A slash-less token that isn't a DOI/PMID is unrecognised.
         assert!(matches!(
-            Identity::parse("owner/repo"),
+            Identity::parse("just-a-word"),
             Err(IdentityError::Unrecognised(_))
         ));
         assert!(matches!(Identity::parse("   "), Err(IdentityError::Empty)));
+    }
+
+    #[test]
+    fn bare_owner_name_is_a_repo_positional() {
+        assert_eq!(
+            Identity::parse("BurntSushi/ripgrep").unwrap(),
+            Identity::Repo(RepoId {
+                host: RepoHost::GitHub,
+                owner: "BurntSushi".into(),
+                name: "ripgrep".into(),
+            })
+        );
+        // A DOI with a slash is still a DOI, not a repo.
+        assert_eq!(
+            Identity::parse("10.1/x").unwrap(),
+            Identity::Paper(PaperId::Doi("10.1/x".into()))
+        );
     }
 
     #[test]

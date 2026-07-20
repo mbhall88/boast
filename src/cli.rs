@@ -26,6 +26,14 @@ const SUBCOMMANDS: &[&str] = &["about", "help"];
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
+
+    /// Increase logging verbosity (-v info, -vv debug, -vvv trace).
+    #[arg(short = 'v', long, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// Silence all logging except errors.
+    #[arg(short = 'q', long, global = true, conflicts_with = "verbose")]
+    pub quiet: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -78,9 +86,40 @@ pub fn main() -> i32 {
         }
     };
 
+    init_logging(cli.verbose, cli.quiet);
+
     match cli.command {
         Command::About(args) => run_about(args),
     }
+}
+
+/// Install the tracing subscriber writing to stderr. `RUST_LOG` overrides the
+/// level chosen by `-v`/`-q`.
+fn init_logging(verbose: u8, quiet: bool) {
+    use tracing_subscriber::EnvFilter;
+
+    // `boast_level` controls our own crate; `global_level` caps noisy
+    // dependencies (ureq, rustls, …) so `-vv` doesn't spew TLS internals.
+    let (boast_level, global_level) = if quiet {
+        ("error", "error")
+    } else {
+        match verbose {
+            0 => ("warn", "warn"),
+            1 => ("info", "warn"),
+            2 => ("debug", "warn"),
+            _ => ("trace", "warn"),
+        }
+    };
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(format!("boast={boast_level},{global_level}")));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .without_time()
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .compact()
+        .init();
 }
 
 fn run_about(args: AboutArgs) -> i32 {
@@ -90,7 +129,7 @@ fn run_about(args: AboutArgs) -> i32 {
         match Identity::parse(target) {
             Ok(id) => identities.push(id),
             Err(e) => {
-                eprintln!("error: {e}");
+                tracing::error!("{e}");
                 return 2;
             }
         }
@@ -99,14 +138,14 @@ fn run_about(args: AboutArgs) -> i32 {
         match RepoId::parse(repo) {
             Ok(id) => identities.push(Identity::Repo(id)),
             Err(e) => {
-                eprintln!("error: {e}");
+                tracing::error!("{e}");
                 return 2;
             }
         }
     }
 
     if identities.is_empty() {
-        eprintln!("error: no identifiers given (pass a DOI/PMID/repo, or --repo owner/name)");
+        tracing::error!("no identifiers given (pass a DOI/PMID/repo, or --repo owner/name)");
         return 2;
     }
 
@@ -118,9 +157,9 @@ fn run_about(args: AboutArgs) -> i32 {
             .filter(|s| !s.is_empty())
             .is_none()
     {
-        eprintln!(
-            "warning: GITHUB_TOKEN is not set — GitHub metrics use the unauthenticated \
-             rate limit (60 requests/hour) and may be throttled. Set GITHUB_TOKEN to raise it."
+        tracing::warn!(
+            "GITHUB_TOKEN is not set; GitHub metrics use the unauthenticated rate limit \
+             (60 requests/hour) and may be throttled. Set GITHUB_TOKEN to raise it."
         );
     }
 
@@ -136,7 +175,7 @@ fn run_about(args: AboutArgs) -> i32 {
         match write_snapshot(&snapshot, &args.snapshot_dir) {
             Ok(path) => println!("\nSnapshot written to {}", path.display()),
             Err(e) => {
-                eprintln!("error: could not write snapshot: {e}");
+                tracing::error!("could not write snapshot: {e}");
                 return 2;
             }
         }

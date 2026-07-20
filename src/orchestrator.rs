@@ -3,8 +3,9 @@
 //! Provider×Identity fetch is recorded as its own Outcome (ADR-0002).
 
 use time::OffsetDateTime;
+use tracing::{debug, warn};
 
-use crate::model::{FetchResult, Project, Snapshot};
+use crate::model::{FetchResult, Outcome, Project, Snapshot};
 use crate::provider::Provider;
 use crate::transport::Transport;
 
@@ -17,14 +18,27 @@ pub fn run(
     let mut results = Vec::new();
 
     for identity in &project.identities {
+        let canonical = identity.canonical();
         for provider in providers {
             if !provider.supports(identity) {
                 continue;
             }
+            debug!(provider = provider.name(), identity = %canonical, "fetching");
             let outcome = provider.fetch(identity, transport);
+            match &outcome {
+                Outcome::Values { metrics, .. } => {
+                    debug!(provider = provider.name(), identity = %canonical, metrics = metrics.len(), "fetched")
+                }
+                Outcome::NotApplicable { note } => {
+                    debug!(provider = provider.name(), identity = %canonical, %note, "not applicable")
+                }
+                Outcome::Failed { error } => {
+                    warn!(provider = provider.name(), identity = %canonical, %error, "fetch failed")
+                }
+            }
             results.push(FetchResult {
                 provider: provider.name().to_string(),
-                identity: identity.canonical(),
+                identity: canonical.clone(),
                 category: provider.category(),
                 outcome,
             });

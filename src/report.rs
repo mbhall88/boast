@@ -21,7 +21,8 @@ struct Row {
     detail: String,
 }
 
-/// Render the Snapshot as a terminal-friendly string.
+/// Render the Snapshot as a terminal-friendly string, grouped by identity then
+/// Category so a batch of identifiers stays readable.
 pub fn render_terminal(snapshot: &Snapshot) -> String {
     let mut out = String::new();
 
@@ -33,42 +34,44 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
         "boast {} — as of {created}\n",
         snapshot.tool_version
     ));
-    out.push_str(&format!("identities: {}\n", snapshot.identities.join(", ")));
 
-    for md in snapshot.descriptions() {
-        let summary = md.summary();
-        if !summary.is_empty() {
-            out.push_str(&format!("  {} — {}\n", md.identity, summary));
-        }
-    }
+    for identity in &snapshot.identities {
+        out.push_str(&format!("\n━━ {identity} ━━\n"));
 
-    for category in CATEGORY_ORDER {
-        let rows = rows_for(snapshot, category);
-        if rows.is_empty() {
-            continue;
-        }
-        out.push('\n');
-        out.push_str(&format!("── {} ──\n", category.label()));
-
-        let w_name = rows.iter().map(|r| r.name.len()).max().unwrap_or(0);
-        let w_value = rows.iter().map(|r| r.value.len()).max().unwrap_or(0);
-        let w_window = rows.iter().map(|r| r.window.len()).max().unwrap_or(0);
-        let w_provider = rows.iter().map(|r| r.provider.len()).max().unwrap_or(0);
-
-        for r in rows {
-            let mut line = format!(
-                "  {name:<w_name$}  {value:>w_value$}  {window:<w_window$}  {provider:<w_provider$}",
-                name = r.name,
-                value = r.value,
-                window = r.window,
-                provider = r.provider,
-            );
-            if !r.detail.is_empty() {
-                line.push_str(&format!("  {}", r.detail));
+        for md in snapshot.descriptions().filter(|d| &d.identity == identity) {
+            let summary = md.summary();
+            if !summary.is_empty() {
+                out.push_str(&format!("{summary}\n"));
             }
-            // Trim trailing whitespace left by empty columns.
-            out.push_str(line.trim_end());
-            out.push('\n');
+        }
+
+        for category in CATEGORY_ORDER {
+            let rows = rows_for(snapshot, identity, category);
+            if rows.is_empty() {
+                continue;
+            }
+            out.push_str(&format!("── {} ──\n", category.label()));
+
+            let w_name = rows.iter().map(|r| r.name.len()).max().unwrap_or(0);
+            let w_value = rows.iter().map(|r| r.value.len()).max().unwrap_or(0);
+            let w_window = rows.iter().map(|r| r.window.len()).max().unwrap_or(0);
+            let w_provider = rows.iter().map(|r| r.provider.len()).max().unwrap_or(0);
+
+            for r in rows {
+                let mut line = format!(
+                    "  {name:<w_name$}  {value:>w_value$}  {window:<w_window$}  {provider:<w_provider$}",
+                    name = r.name,
+                    value = r.value,
+                    window = r.window,
+                    provider = r.provider,
+                );
+                if !r.detail.is_empty() {
+                    line.push_str(&format!("  {}", r.detail));
+                }
+                // Trim trailing whitespace left by empty columns.
+                out.push_str(line.trim_end());
+                out.push('\n');
+            }
         }
     }
 
@@ -81,11 +84,11 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
     out
 }
 
-/// Build the display rows for one Category from the Snapshot's results.
-fn rows_for(snapshot: &Snapshot, category: Category) -> Vec<Row> {
+/// Build the display rows for one identity and Category from the Snapshot.
+fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row> {
     let mut rows = Vec::new();
     for result in &snapshot.results {
-        if result.category != category {
+        if result.identity != identity || result.category != category {
             continue;
         }
         match &result.outcome {
@@ -101,17 +104,17 @@ fn rows_for(snapshot: &Snapshot, category: Category) -> Vec<Row> {
                 }
             }
             Outcome::NotApplicable { note } => rows.push(Row {
-                name: result.identity.clone(),
+                name: result.provider.clone(),
                 value: "N/A".to_string(),
                 window: String::new(),
-                provider: result.provider.clone(),
+                provider: String::new(),
                 detail: note.clone(),
             }),
             Outcome::Failed { error } => rows.push(Row {
-                name: result.identity.clone(),
+                name: result.provider.clone(),
                 value: "FAILED".to_string(),
                 window: String::new(),
-                provider: result.provider.clone(),
+                provider: String::new(),
                 detail: error.clone(),
             }),
         }
@@ -170,7 +173,7 @@ mod tests {
 
     #[test]
     fn shows_na_and_failed_distinctly_never_zero() {
-        let snap = snapshot_with(vec![
+        let mut snap = snapshot_with(vec![
             FetchResult {
                 provider: "openalex".into(),
                 identity: "doi:10.2/y".into(),
@@ -188,10 +191,49 @@ mod tests {
                 },
             },
         ]);
+        snap.identities = vec!["doi:10.2/y".into(), "doi:10.3/z".into()];
         let out = render_terminal(&snap);
         assert!(out.contains("N/A"));
         assert!(out.contains("FAILED"));
         assert!(!out.contains(" 0 "));
         assert!(out.contains("partial snapshot"));
+    }
+
+    #[test]
+    fn groups_results_under_per_identity_banners() {
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "openalex".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![metric("citations", MetricValue::Count(1421))],
+                    metadata: None,
+                },
+            },
+            FetchResult {
+                provider: "github".into(),
+                identity: "github:o/n".into(),
+                category: Category::Code,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        category: Category::Code,
+                        provider: "github".into(),
+                        identity: "github:o/n".into(),
+                        ..metric("stars", MetricValue::Count(42))
+                    }],
+                    metadata: None,
+                },
+            },
+        ]);
+        snap.identities = vec!["doi:10.1/x".into(), "github:o/n".into()];
+        let out = render_terminal(&snap);
+        assert!(out.contains("━━ doi:10.1/x ━━"));
+        assert!(out.contains("━━ github:o/n ━━"));
+        // The DOI banner precedes its Citations block; the repo banner its Code block.
+        let doi_pos = out.find("doi:10.1/x").unwrap();
+        let repo_pos = out.find("github:o/n").unwrap();
+        assert!(doi_pos < repo_pos);
+        assert!(out.contains("stars"));
     }
 }

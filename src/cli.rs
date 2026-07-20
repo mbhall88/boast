@@ -52,6 +52,11 @@ pub struct AboutArgs {
     #[arg(short = 'r', long = "repo", value_name = "OWNER/NAME")]
     pub repos: Vec<String>,
 
+    /// Read identifiers from a file (one per line; `#` comments and blank lines
+    /// ignored). Use `-` for stdin. Repeatable.
+    #[arg(short = 'f', long = "from-file", value_name = "FILE")]
+    pub from_file: Vec<PathBuf>,
+
     /// Directory to write the Snapshot into.
     #[arg(short = 'd', long, default_value = "snapshots", value_name = "DIR")]
     pub snapshot_dir: PathBuf,
@@ -159,6 +164,22 @@ fn run_about(args: AboutArgs) -> i32 {
             }
         }
     }
+    for path in &args.from_file {
+        let content = match read_source(path) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("could not read {}: {e}", display_source(path));
+                return 2;
+            }
+        };
+        match parse_identifier_lines(&content) {
+            Ok(ids) => identities.extend(ids),
+            Err(e) => {
+                tracing::error!("{}: {e}", display_source(path));
+                return 2;
+            }
+        }
+    }
 
     if identities.is_empty() {
         tracing::error!("no identifiers given (pass a DOI/PMID/repo, or --repo owner/name)");
@@ -202,6 +223,40 @@ fn run_about(args: AboutArgs) -> i32 {
     } else {
         0
     }
+}
+
+/// Read a `--from-file` source: a path, or `-` for stdin.
+fn read_source(path: &std::path::Path) -> std::io::Result<String> {
+    if path.as_os_str() == "-" {
+        std::io::read_to_string(std::io::stdin())
+    } else {
+        std::fs::read_to_string(path)
+    }
+}
+
+fn display_source(path: &std::path::Path) -> String {
+    if path.as_os_str() == "-" {
+        "<stdin>".to_string()
+    } else {
+        path.display().to_string()
+    }
+}
+
+/// Parse one identifier per line, ignoring blank lines and `#` comments. On a
+/// bad line, return an error naming the 1-based line number.
+fn parse_identifier_lines(content: &str) -> Result<Vec<Identity>, String> {
+    let mut identities = Vec::new();
+    for (i, raw) in content.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        match Identity::parse(line) {
+            Ok(id) => identities.push(id),
+            Err(e) => return Err(format!("line {}: {e}", i + 1)),
+        }
+    }
+    Ok(identities)
 }
 
 fn write_snapshot(
@@ -283,5 +338,22 @@ mod tests {
         let bare = Cli::try_parse_from(norm(&["boast", "10.1/x"])).unwrap();
         let Command::About(a) = bare.command;
         assert_eq!(a.targets, vec!["10.1/x".to_string()]);
+    }
+
+    #[test]
+    fn parses_identifier_file_with_comments_and_mixed_kinds() {
+        let content = "\
+# my grant tools
+10.1371/journal.pbio.1002195
+
+  samtools/samtools
+pmid:31234567
+";
+        let ids = parse_identifier_lines(content).unwrap();
+        assert_eq!(ids.len(), 3);
+        assert!(matches!(ids[1], crate::model::Identity::Repo(_)));
+
+        let err = parse_identifier_lines("10.1/x\nnot an id\n").unwrap_err();
+        assert!(err.contains("line 2"));
     }
 }

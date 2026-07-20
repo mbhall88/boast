@@ -1,0 +1,16 @@
+[
+  {
+    "tag_name": "15.2.0",
+    "assets": [
+      { "name": "ripgrep-15.2.0-aarch64-apple-darwin.tar.gz", "download_count": 7381 },
+      { "name": "ripgrep-15.2.0-aarch64-apple-darwin.tar.gz.sha256", "download_count": 404 }
+    ]
+  },
+  {
+    "tag_name": "15.1.0",
+    "assets": [
+      { "name": "ripgrep-15.1.0-aarch64-apple-darwin.tar.gz", "download_count": 1007182 },
+      { "name": "ripgrep-15.1.0-aarch64-apple-darwin.tar.gz.sha256", "download_count": 13027 }
+    ]
+  }
+]

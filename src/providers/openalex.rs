@@ -29,10 +29,11 @@ struct OaPercentile {
 
 impl OpenAlex {
     /// The OpenAlex selector for a paper Identity (e.g. `doi:10.x`, `pmid:123`).
-    fn selector(identity: &Identity) -> String {
+    fn selector(identity: &Identity) -> Option<String> {
         match identity {
-            Identity::Paper(PaperId::Doi(d)) => format!("doi:{d}"),
-            Identity::Paper(PaperId::Pmid(p)) => format!("pmid:{p}"),
+            Identity::Paper(PaperId::Doi(d)) => Some(format!("doi:{d}")),
+            Identity::Paper(PaperId::Pmid(p)) => Some(format!("pmid:{p}")),
+            Identity::Repo(_) => None,
         }
     }
 
@@ -128,7 +129,15 @@ impl Provider for OpenAlex {
     }
 
     fn fetch(&self, identity: &Identity, transport: &dyn Transport) -> Outcome {
-        let url = format!("{API_BASE}{}", Self::selector(identity));
+        let selector = match Self::selector(identity) {
+            Some(s) => s,
+            None => {
+                return Outcome::NotApplicable {
+                    note: "OpenAlex only supports papers".into(),
+                }
+            }
+        };
+        let url = format!("{API_BASE}{selector}");
         let canonical = identity.canonical();
 
         let resp = match transport.get(&url) {

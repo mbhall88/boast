@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use time::macros::format_description;
 
-use crate::model::{Identity, Project};
+use crate::model::{Identity, Project, RepoId};
 use crate::orchestrator;
 use crate::providers::default_providers;
 use crate::report::render_terminal;
@@ -36,9 +36,13 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct AboutArgs {
-    /// One or more identifiers (a DOI, a doi.org URL, or `pmid:12345678`).
-    #[arg(required = true, value_name = "IDENTIFIER")]
+    /// Identifiers: a DOI, a doi.org URL, `pmid:12345678`, or a github.com repo URL.
+    #[arg(value_name = "IDENTIFIER")]
     pub targets: Vec<String>,
+
+    /// A GitHub repository as `owner/name` (repeatable).
+    #[arg(short = 'r', long = "repo", value_name = "OWNER/NAME")]
+    pub repos: Vec<String>,
 
     /// Directory to write the Snapshot into.
     #[arg(short = 'd', long, default_value = "snapshots", value_name = "DIR")]
@@ -90,6 +94,34 @@ fn run_about(args: AboutArgs) -> i32 {
                 return 2;
             }
         }
+    }
+    for repo in &args.repos {
+        match RepoId::parse(repo) {
+            Ok(id) => identities.push(Identity::Repo(id)),
+            Err(e) => {
+                eprintln!("error: {e}");
+                return 2;
+            }
+        }
+    }
+
+    if identities.is_empty() {
+        eprintln!("error: no identifiers given (pass a DOI/PMID/repo, or --repo owner/name)");
+        return 2;
+    }
+
+    // Warn loudly if repo metrics were requested without a token to raise limits.
+    let wants_repo = identities.iter().any(|i| matches!(i, Identity::Repo(_)));
+    if wants_repo
+        && std::env::var("GITHUB_TOKEN")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .is_none()
+    {
+        eprintln!(
+            "warning: GITHUB_TOKEN is not set — GitHub metrics use the unauthenticated \
+             rate limit (60 requests/hour) and may be throttled. Set GITHUB_TOKEN to raise it."
+        );
     }
 
     let project = Project::new(identities);

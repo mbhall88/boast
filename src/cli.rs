@@ -44,11 +44,11 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct AboutArgs {
-    /// Identifiers: a DOI, a doi.org URL, `pmid:12345678`, or a github.com repo URL.
+    /// Identifiers: a DOI, doi.org URL, `pmid:12345678`, a github.com URL, or `owner/name`.
     #[arg(value_name = "IDENTIFIER")]
     pub targets: Vec<String>,
 
-    /// A GitHub repository as `owner/name` (repeatable).
+    /// A GitHub repository as `owner/name` (alternative to a positional; repeatable).
     #[arg(short = 'r', long = "repo", value_name = "OWNER/NAME")]
     pub repos: Vec<String>,
 
@@ -61,15 +61,31 @@ pub struct AboutArgs {
     pub no_save: bool,
 }
 
-/// Insert an implicit `about` when the first positional token is a bare
-/// identifier rather than a known subcommand.
+/// Recognised global flags — all valueless — skipped when locating the
+/// subcommand so they can precede an implicit `about`.
+fn is_global_flag(token: &str) -> bool {
+    matches!(
+        token,
+        "-q" | "--quiet" | "-h" | "--help" | "-V" | "--version" | "--verbose"
+    ) || (token.starts_with("-v") && token[1..].chars().all(|c| c == 'v'))
+}
+
+/// Insert an implicit `about` subcommand when the user gave a bare identifier
+/// (or an `about`-specific flag) instead of a subcommand. Leading global flags
+/// are skipped, so `boast -q owner/repo` and `boast --repo owner/name` both work.
 fn normalize_args(mut args: Vec<String>) -> Vec<String> {
-    // If there's no positional (only help/version flags), leave args for clap.
-    if let Some(idx) = args.iter().skip(1).position(|a| !a.starts_with('-')) {
-        let token = &args[idx + 1];
-        if !SUBCOMMANDS.contains(&token.as_str()) {
-            args.insert(idx + 1, "about".to_string());
+    let mut i = 1;
+    while i < args.len() {
+        if is_global_flag(&args[i]) {
+            i += 1;
+            continue;
         }
+        // First non-global token: either a subcommand (leave it) or the start
+        // of `about`'s arguments (insert `about` before it).
+        if !SUBCOMMANDS.contains(&args[i].as_str()) {
+            args.insert(i, "about".to_string());
+        }
+        break;
     }
     args
 }
@@ -219,6 +235,11 @@ mod tests {
             norm(&["boast", "pmid:42"]),
             vec!["boast", "about", "pmid:42"]
         );
+        // Bare owner/name repo shorthand, optionally alongside a DOI.
+        assert_eq!(
+            norm(&["boast", "owner/repo", "10.1/x"]),
+            vec!["boast", "about", "owner/repo", "10.1/x"]
+        );
     }
 
     #[test]
@@ -230,8 +251,30 @@ mod tests {
     }
 
     #[test]
-    fn flags_before_identifier_are_handled() {
-        // A leading global flag shouldn't be treated as the positional.
+    fn about_flags_without_subcommand_get_implicit_about() {
+        // `--repo`'s value must not be mistaken for the subcommand position.
+        assert_eq!(
+            norm(&["boast", "--repo", "owner/name"]),
+            vec!["boast", "about", "--repo", "owner/name"]
+        );
+        assert_eq!(
+            norm(&["boast", "-d", "out", "10.1/x"]),
+            vec!["boast", "about", "-d", "out", "10.1/x"]
+        );
+    }
+
+    #[test]
+    fn global_flags_are_skipped_and_preserved() {
+        // Global flags may precede either an implicit or explicit subcommand.
+        assert_eq!(
+            norm(&["boast", "-q", "10.1/x"]),
+            vec!["boast", "-q", "about", "10.1/x"]
+        );
+        assert_eq!(
+            norm(&["boast", "-vv", "about", "10.1/x"]),
+            vec!["boast", "-vv", "about", "10.1/x"]
+        );
+        // Only global flags → leave for clap (help/version).
         assert_eq!(norm(&["boast", "--version"]), vec!["boast", "--version"]);
     }
 

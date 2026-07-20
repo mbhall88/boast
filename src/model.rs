@@ -90,13 +90,65 @@ pub struct Metric {
     pub note: Option<String>,
 }
 
+/// Descriptive bibliographic metadata for a paper Identity. This is *not* a
+/// reach Metric (it has no value, Window, or Category); it labels the paper in
+/// Reports so a reader knows what the numbers describe. Carried alongside the
+/// reach Metrics a Provider fetched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaperMetadata {
+    pub identity: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub authors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub container: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub year: Option<i32>,
+    pub provider: String,
+    pub source: String,
+}
+
+impl PaperMetadata {
+    /// A one-line human summary, e.g. `"Title" — Stephens et al., PLOS Biology, 2015`.
+    pub fn summary(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(title) = &self.title {
+            parts.push(format!("\"{title}\""));
+        }
+        let mut tail: Vec<String> = Vec::new();
+        if let Some(first) = self.authors.first() {
+            if self.authors.len() > 1 {
+                tail.push(format!("{first} et al."));
+            } else {
+                tail.push(first.clone());
+            }
+        }
+        if let Some(container) = &self.container {
+            tail.push(container.clone());
+        }
+        if let Some(year) = self.year {
+            tail.push(year.to_string());
+        }
+        if !tail.is_empty() {
+            parts.push(tail.join(", "));
+        }
+        parts.join(" — ")
+    }
+}
+
 /// The result of one Provider×Identity fetch — exactly one of three states.
 /// NotApplicable and Failed are never coerced to a zero Value (ADR-0002).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Outcome {
-    /// One or more real Metrics were produced.
-    Values { metrics: Vec<Metric> },
+    /// One or more real Metrics were produced, plus any descriptive metadata
+    /// the Provider resolved for the Identity.
+    Values {
+        metrics: Vec<Metric>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        metadata: Option<PaperMetadata>,
+    },
     /// The Identity legitimately has no presence on this channel (shown N/A).
     NotApplicable { note: String },
     /// A transient error; the number exists but wasn't retrievable now.
@@ -138,8 +190,18 @@ impl Snapshot {
     /// Every successfully-fetched Metric across all results.
     pub fn metrics(&self) -> impl Iterator<Item = &Metric> {
         self.results.iter().flat_map(|r| match &r.outcome {
-            Outcome::Values { metrics } => metrics.as_slice(),
+            Outcome::Values { metrics, .. } => metrics.as_slice(),
             _ => &[],
+        })
+    }
+
+    /// Descriptive metadata resolved for the Project's identities.
+    pub fn descriptions(&self) -> impl Iterator<Item = &PaperMetadata> {
+        self.results.iter().filter_map(|r| match &r.outcome {
+            Outcome::Values {
+                metadata: Some(md), ..
+            } => Some(md),
+            _ => None,
         })
     }
 }
@@ -293,6 +355,15 @@ mod tests {
                             source: "https://api.openalex.org/works/doi:10.1/x".into(),
                             note: None,
                         }],
+                        metadata: Some(PaperMetadata {
+                            identity: "doi:10.1/x".into(),
+                            title: Some("A Paper".into()),
+                            authors: vec!["A. Author".into(), "B. Author".into()],
+                            container: Some("Journal".into()),
+                            year: Some(2015),
+                            provider: "crossref".into(),
+                            source: "https://api.crossref.org/works/10.1/x".into(),
+                        }),
                     },
                 },
                 FetchResult {
@@ -308,6 +379,11 @@ mod tests {
 
         assert!(snap.has_failures());
         assert_eq!(snap.metrics().count(), 1);
+        assert_eq!(snap.descriptions().count(), 1);
+        assert_eq!(
+            snap.descriptions().next().unwrap().summary(),
+            "\"A Paper\" — A. Author et al., Journal, 2015"
+        );
 
         let json = serde_json::to_string(&snap).unwrap();
         let back: Snapshot = serde_json::from_str(&json).unwrap();

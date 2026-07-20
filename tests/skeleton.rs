@@ -1,6 +1,6 @@
-//! End-to-end test of the walking skeleton over the HTTP-transport seam:
-//! a recorded OpenAlex response drives a Project through the orchestrator into
-//! a Snapshot and a rendered Report — with no network access.
+//! End-to-end test of the pipeline over the HTTP-transport seam: recorded
+//! OpenAlex and Crossref responses drive a Project through the orchestrator
+//! into a Snapshot and a rendered Report — with no network access.
 
 use boast::model::{Identity, PaperId, Project};
 use boast::orchestrator;
@@ -15,27 +15,36 @@ fn paper() -> Project {
 }
 
 #[test]
-fn cassette_drives_full_pipeline() {
-    let cassette = include_str!("cassettes/openalex_work.json");
-    let transport = MockTransport::new().on("api.openalex.org/works/doi:", 200, cassette);
+fn cassettes_drive_full_pipeline() {
+    let openalex = include_str!("cassettes/openalex_work.json");
+    let crossref = include_str!("cassettes/crossref_work.json");
+    let transport = MockTransport::new()
+        .on("api.openalex.org/works/doi:", 200, openalex)
+        .on("api.crossref.org/works/", 200, crossref);
 
     let snapshot = orchestrator::run(&paper(), &default_providers(), &transport);
 
     assert_eq!(snapshot.schema_version, boast::Snapshot::SCHEMA_VERSION);
     assert!(!snapshot.has_failures());
-    assert_eq!(snapshot.metrics().count(), 3);
+    // 3 from OpenAlex (citations, fwci, percentile) + 1 from Crossref (citations).
+    assert_eq!(snapshot.metrics().count(), 4);
+    // Crossref contributes one paper description.
+    assert_eq!(snapshot.descriptions().count(), 1);
 
     let report = render_terminal(&snapshot);
     assert!(report.contains("── Citations ──"));
-    assert!(report.contains("1421")); // citations
-    assert!(report.contains("59.91")); // fwci
+    assert!(report.contains("1421")); // OpenAlex citations
+    assert!(report.contains("1161")); // Crossref citations
+    assert!(report.contains("Big Data: Astronomical or Genomical?")); // metadata title
+    assert!(report.contains("PLOS Biology")); // metadata journal
     assert!(!report.contains("partial snapshot"));
 }
 
 #[test]
 fn transport_failure_yields_failed_outcome_and_partial_report() {
-    let transport =
-        MockTransport::new().on_error("api.openalex.org/works/doi:", TransportError::Timeout);
+    let transport = MockTransport::new()
+        .on_error("api.openalex.org/works/doi:", TransportError::Timeout)
+        .on_error("api.crossref.org/works/", TransportError::Timeout);
 
     let snapshot = orchestrator::run(&paper(), &default_providers(), &transport);
 

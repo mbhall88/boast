@@ -106,7 +106,10 @@ impl OpenAlex {
                 note: "OpenAlex returned no citation metrics for this record".into(),
             }
         } else {
-            Outcome::Values { metrics }
+            Outcome::Values {
+                metrics,
+                metadata: None,
+            }
         }
     }
 }
@@ -172,7 +175,7 @@ mod tests {
 
         let outcome = OpenAlex.fetch(&doi(), &t);
         let metrics = match outcome {
-            Outcome::Values { metrics } => metrics,
+            Outcome::Values { metrics, .. } => metrics,
             other => panic!("expected Values, got {other:?}"),
         };
 
@@ -202,7 +205,7 @@ mod tests {
         let body = r#"{"cited_by_count": 5, "fwci": null, "citation_normalized_percentile": null}"#;
         let t = MockTransport::new().on("works/doi:", 200, body);
         match OpenAlex.fetch(&doi(), &t) {
-            Outcome::Values { metrics } => {
+            Outcome::Values { metrics, .. } => {
                 assert_eq!(metrics.len(), 1);
                 assert_eq!(metrics[0].value, MetricValue::Count(5));
             }

@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "message-type": "work",
+  "message": {
+    "DOI": "10.1371/journal.pbio.1002195",
+    "type": "journal-article",
+    "title": ["Big Data: Astronomical or Genomical?"],
+    "container-title": ["PLOS Biology"],
+    "author": [
+      { "given": "Zachary D.", "family": "Stephens", "sequence": "first" },
+      { "given": "Skylar Y.", "family": "Lee", "sequence": "additional" },
+      { "given": "Faraz", "family": "Faghri", "sequence": "additional" }
+    ],
+    "issued": { "date-parts": [[2015, 7, 7]] },
+    "is-referenced-by-count": 1161,
+    "references-count": 52
+  }
+}

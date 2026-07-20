@@ -35,6 +35,13 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
     ));
     out.push_str(&format!("identities: {}\n", snapshot.identities.join(", ")));
 
+    for md in snapshot.descriptions() {
+        let summary = md.summary();
+        if !summary.is_empty() {
+            out.push_str(&format!("  {} — {}\n", md.identity, summary));
+        }
+    }
+
     for category in CATEGORY_ORDER {
         let rows = rows_for(snapshot, category);
         if rows.is_empty() {
@@ -82,7 +89,7 @@ fn rows_for(snapshot: &Snapshot, category: Category) -> Vec<Row> {
             continue;
         }
         match &result.outcome {
-            Outcome::Values { metrics } => {
+            Outcome::Values { metrics, .. } => {
                 for m in metrics {
                     rows.push(Row {
                         name: m.name.clone(),
@@ -151,6 +158,7 @@ mod tests {
             category: Category::Citations,
             outcome: Outcome::Values {
                 metrics: vec![metric("citations", MetricValue::Count(1421))],
+                metadata: None,
             },
         }]);
         let out = render_terminal(&snap);

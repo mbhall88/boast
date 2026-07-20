@@ -55,7 +55,10 @@ mod tests {
     #[test]
     fn assembles_snapshot_with_metrics_and_no_failures() {
         let body = r#"{"cited_by_count": 10, "fwci": 2.0, "citation_normalized_percentile": null}"#;
-        let t = MockTransport::new().on("works/doi:", 200, body);
+        // OpenAlex returns metrics; Crossref has no record for this DOI.
+        let t = MockTransport::new()
+            .on("api.openalex.org/works/doi:", 200, body)
+            .on("api.crossref.org/works/", 404, "");
 
         let snap = run(&project(), &default_providers(), &t);
 
@@ -67,7 +70,13 @@ mod tests {
 
     #[test]
     fn records_failure_without_aborting() {
-        let t = MockTransport::new().on_error("works/doi:", TransportError::ConnectionFailed);
+        // OpenAlex fails; Crossref is fine — one dead Provider must not block others.
+        let t = MockTransport::new()
+            .on_error(
+                "api.openalex.org/works/doi:",
+                TransportError::ConnectionFailed,
+            )
+            .on("api.crossref.org/works/", 404, "");
         let snap = run(&project(), &default_providers(), &t);
 
         assert!(snap.has_failures());

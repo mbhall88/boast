@@ -3,17 +3,29 @@
 //! from recorded responses in tests (see [`MockTransport`]). The production
 //! implementation is rustls-only (ADR-0004).
 
+use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
 
 /// A raw HTTP response as seen by a Provider. Note that 4xx/5xx are *not*
 /// errors here — the status is handed back so the Provider can classify the
-/// Outcome (404 → NotApplicable, 429/5xx → Failed).
+/// Outcome (404 → NotApplicable, 429/5xx → Failed). Response headers are
+/// exposed (lower-cased keys) for things like pagination `Link` headers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpResponse {
     pub status: u16,
     pub body: String,
     pub url: String,
+    pub headers: HashMap<String, String>,
+}
+
+impl HttpResponse {
+    /// Look up a response header case-insensitively.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
+    }
 }
 
 /// A genuine transport failure (no HTTP status was obtained). These become
@@ -30,9 +42,19 @@ pub enum TransportError {
     Body(String),
 }
 
-/// The one seam. Given a URL, return a response or a transport failure.
+/// The one seam. Given a URL (and optional request headers, e.g. an auth
+/// token), return a response or a transport failure.
 pub trait Transport {
-    fn get(&self, url: &str) -> Result<HttpResponse, TransportError>;
+    fn get_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<HttpResponse, TransportError>;
+
+    /// Convenience for the common no-extra-headers case.
+    fn get(&self, url: &str) -> Result<HttpResponse, TransportError> {
+        self.get_with_headers(url, &[])
+    }
 }
 
 /// Default User-Agent identifying the tool.
@@ -72,15 +94,31 @@ impl Default for UreqTransport {
 }
 
 impl Transport for UreqTransport {
-    fn get(&self, url: &str) -> Result<HttpResponse, TransportError> {
-        match self
+    fn get_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<HttpResponse, TransportError> {
+        let mut request = self
             .agent
             .get(url)
-            .header("User-Agent", self.user_agent.as_str())
-            .call()
-        {
+            .header("User-Agent", self.user_agent.as_str());
+        for (key, value) in headers {
+            request = request.header(*key, *value);
+        }
+        match request.call() {
             Ok(mut resp) => {
                 let status = resp.status().as_u16();
+                let headers = resp
+                    .headers()
+                    .iter()
+                    .map(|(name, value)| {
+                        (
+                            name.as_str().to_ascii_lowercase(),
+                            value.to_str().unwrap_or("").to_string(),
+                        )
+                    })
+                    .collect();
                 let body = resp
                     .body_mut()
                     .read_to_string()
@@ -89,6 +127,7 @@ impl Transport for UreqTransport {
                     status,
                     body,
                     url: url.to_string(),
+                    headers,
                 })
             }
             Err(ureq::Error::Timeout(_)) => Err(TransportError::Timeout),
@@ -107,7 +146,11 @@ pub struct MockTransport {
 }
 
 enum MockReply {
-    Http { status: u16, body: String },
+    Http {
+        status: u16,
+        body: String,
+        headers: HashMap<String, String>,
+    },
     Error(TransportError),
 }
 
@@ -123,6 +166,30 @@ impl MockTransport {
             MockReply::Http {
                 status,
                 body: body.into(),
+                headers: HashMap::new(),
+            },
+        ));
+        self
+    }
+
+    /// Reply with `status`, `body`, and response headers for a matching URL.
+    pub fn on_with_headers(
+        mut self,
+        url_contains: &str,
+        status: u16,
+        body: impl Into<String>,
+        headers: &[(&str, &str)],
+    ) -> Self {
+        let headers = headers
+            .iter()
+            .map(|(k, v)| (k.to_ascii_lowercase(), v.to_string()))
+            .collect();
+        self.routes.push((
+            url_contains.to_string(),
+            MockReply::Http {
+                status,
+                body: body.into(),
+                headers,
             },
         ));
         self
@@ -137,14 +204,23 @@ impl MockTransport {
 }
 
 impl Transport for MockTransport {
-    fn get(&self, url: &str) -> Result<HttpResponse, TransportError> {
+    fn get_with_headers(
+        &self,
+        url: &str,
+        _headers: &[(&str, &str)],
+    ) -> Result<HttpResponse, TransportError> {
         for (needle, reply) in &self.routes {
             if url.contains(needle) {
                 return match reply {
-                    MockReply::Http { status, body } => Ok(HttpResponse {
+                    MockReply::Http {
+                        status,
+                        body,
+                        headers,
+                    } => Ok(HttpResponse {
                         status: *status,
                         body: body.clone(),
                         url: url.to_string(),
+                        headers: headers.clone(),
                     }),
                     MockReply::Error(e) => Err(e.clone()),
                 };
@@ -172,6 +248,20 @@ mod tests {
             t.get("https://example.com/timeout"),
             Err(TransportError::Timeout)
         );
+    }
+
+    #[test]
+    fn mock_exposes_response_headers_case_insensitively() {
+        let t = MockTransport::new().on_with_headers(
+            "contributors",
+            200,
+            "[]",
+            &[("Link", "<...&page=477>; rel=\"last\"")],
+        );
+        let r = t
+            .get("https://api.github.com/repos/o/n/contributors")
+            .unwrap();
+        assert!(r.header("link").unwrap().contains("page=477"));
     }
 
     #[test]

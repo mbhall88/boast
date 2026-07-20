@@ -206,12 +206,13 @@ impl Snapshot {
     }
 }
 
-/// One external handle a Project links to. v1 knows papers; repos and packages
-/// arrive in later tickets.
+/// One external handle a Project links to. v1 knows papers and code
+/// repositories; packages arrive in later tickets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Identity {
     Paper(PaperId),
+    Repo(RepoId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,20 +222,78 @@ pub enum PaperId {
     Pmid(String),
 }
 
+/// A code repository on a known host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoId {
+    pub host: RepoHost,
+    pub owner: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RepoHost {
+    GitHub,
+}
+
+impl RepoHost {
+    fn prefix(self) -> &'static str {
+        match self {
+            RepoHost::GitHub => "github",
+        }
+    }
+}
+
+impl RepoId {
+    /// Parse `owner/name`, a `github.com/owner/name` URL (with optional scheme,
+    /// `.git`, or extra path), or an `git@github.com:owner/name` SSH form.
+    pub fn parse(input: &str) -> Result<RepoId, IdentityError> {
+        let s = input.trim().trim_end_matches('/');
+        if s.is_empty() {
+            return Err(IdentityError::Empty);
+        }
+        let mut rest = s;
+        for scheme in ["https://", "http://"] {
+            rest = rest.strip_prefix(scheme).unwrap_or(rest);
+        }
+        rest = rest.strip_prefix("www.").unwrap_or(rest);
+        rest = rest.strip_prefix("git@github.com:").unwrap_or(rest);
+        rest = rest.strip_prefix("github.com/").unwrap_or(rest);
+        rest = rest.strip_prefix("github:").unwrap_or(rest);
+        rest = rest.strip_suffix(".git").unwrap_or(rest);
+
+        let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.len() < 2 {
+            return Err(IdentityError::Unrecognised(input.to_string()));
+        }
+        let (owner, name) = (parts[0], parts[1]);
+        if owner.chars().any(char::is_whitespace) || name.chars().any(char::is_whitespace) {
+            return Err(IdentityError::Unrecognised(input.to_string()));
+        }
+        Ok(RepoId {
+            host: RepoHost::GitHub,
+            owner: owner.to_string(),
+            name: name.to_string(),
+        })
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum IdentityError {
-    #[error("could not recognise '{0}' as a DOI or PubMed ID (repos/packages arrive in a later release)")]
+    #[error("could not recognise '{0}' as a DOI, PubMed ID, or GitHub repo (packages arrive in a later release)")]
     Unrecognised(String),
     #[error("empty identifier")]
     Empty,
 }
 
 impl Identity {
-    /// Canonical string form used in Snapshots and Reports, e.g. `doi:10.x`.
+    /// Canonical string form used in Snapshots and Reports, e.g. `doi:10.x` or
+    /// `github:owner/name`.
     pub fn canonical(&self) -> String {
         match self {
             Identity::Paper(PaperId::Doi(d)) => format!("doi:{d}"),
             Identity::Paper(PaperId::Pmid(p)) => format!("pmid:{p}"),
+            Identity::Repo(r) => format!("{}:{}/{}", r.host.prefix(), r.owner, r.name),
         }
     }
 
@@ -265,6 +324,12 @@ impl Identity {
             if doi.starts_with("10.") {
                 return Ok(Identity::Paper(PaperId::Doi(doi.trim().to_string())));
             }
+        }
+
+        // GitHub repo URL (positional). The bare `owner/name` shorthand is only
+        // accepted via the explicit `--repo` flag, to avoid guessing.
+        if lower.contains("github.com/") || lower.starts_with("git@github.com:") {
+            return RepoId::parse(s).map(Identity::Repo);
         }
 
         // Bare DOI: starts with "10." and contains a slash.
@@ -317,6 +382,7 @@ mod tests {
 
     #[test]
     fn rejects_unrecognised() {
+        // A bare `owner/repo` is NOT a positional identity — it must come via --repo.
         assert!(matches!(
             Identity::parse("owner/repo"),
             Err(IdentityError::Unrecognised(_))
@@ -325,9 +391,41 @@ mod tests {
     }
 
     #[test]
+    fn parses_github_repo_urls_and_shorthand() {
+        let want = RepoId {
+            host: RepoHost::GitHub,
+            owner: "BurntSushi".into(),
+            name: "ripgrep".into(),
+        };
+        // Positional URL forms parse to a Repo identity.
+        for input in [
+            "https://github.com/BurntSushi/ripgrep",
+            "github.com/BurntSushi/ripgrep",
+            "https://github.com/BurntSushi/ripgrep.git",
+            "https://github.com/BurntSushi/ripgrep/tree/master",
+            "git@github.com:BurntSushi/ripgrep.git",
+        ] {
+            assert_eq!(
+                Identity::parse(input).unwrap(),
+                Identity::Repo(want.clone())
+            );
+        }
+        // The `--repo` shorthand goes through RepoId::parse directly.
+        assert_eq!(RepoId::parse("BurntSushi/ripgrep").unwrap(), want);
+        assert!(matches!(
+            RepoId::parse("noslash"),
+            Err(IdentityError::Unrecognised(_))
+        ));
+    }
+
+    #[test]
     fn canonical_forms() {
         assert_eq!(Identity::parse("10.1/x").unwrap().canonical(), "doi:10.1/x");
         assert_eq!(Identity::parse("pmid:42").unwrap().canonical(), "pmid:42");
+        assert_eq!(
+            Identity::Repo(RepoId::parse("BurntSushi/ripgrep").unwrap()).canonical(),
+            "github:BurntSushi/ripgrep"
+        );
     }
 
     #[test]

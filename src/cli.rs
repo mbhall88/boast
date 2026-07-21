@@ -44,7 +44,8 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct AboutArgs {
-    /// Identifiers: a DOI, doi.org URL, `pmid:12345678`, a github.com URL, or `owner/name`.
+    /// Identifiers: a DOI, doi.org URL, `pmid:12345678`, a github.com URL,
+    /// `owner/name`, or a package as `registry:name` (e.g. `crates:boast`).
     #[arg(value_name = "IDENTIFIER")]
     pub targets: Vec<String>,
 

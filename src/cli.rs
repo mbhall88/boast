@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use time::macros::format_description;
 
-use crate::model::{Identity, Project, RepoId};
+use crate::model::{Identity, PackageId, Project, RepoId};
 use crate::orchestrator;
 use crate::providers::default_providers_with_topic;
 use crate::report::render_terminal;
@@ -51,6 +51,11 @@ pub struct AboutArgs {
     /// A GitHub repository as `owner/name` (alternative to a positional; repeatable).
     #[arg(short = 'r', long = "repo", value_name = "OWNER/NAME")]
     pub repos: Vec<String>,
+
+    /// A distribution package as `registry:name`, e.g. `crates:boast`
+    /// (alternative to a positional; repeatable).
+    #[arg(short = 'p', long = "package", value_name = "REGISTRY:NAME")]
+    pub packages: Vec<String>,
 
     /// Read identifiers from a file (one per line; `#` comments and blank lines
     /// ignored). Use `-` for stdin. Repeatable.
@@ -163,6 +168,15 @@ fn run_about(args: AboutArgs) -> i32 {
     for repo in &args.repos {
         match RepoId::parse(repo) {
             Ok(id) => identities.push(Identity::Repo(id)),
+            Err(e) => {
+                tracing::error!("{e}");
+                return 2;
+            }
+        }
+    }
+    for package in &args.packages {
+        match PackageId::parse(package) {
+            Ok(id) => identities.push(Identity::Package(id)),
             Err(e) => {
                 tracing::error!("{e}");
                 return 2;
@@ -343,6 +357,13 @@ mod tests {
         let bare = Cli::try_parse_from(norm(&["boast", "10.1/x"])).unwrap();
         let Command::About(a) = bare.command;
         assert_eq!(a.targets, vec!["10.1/x".to_string()]);
+    }
+
+    #[test]
+    fn cli_parses_package_flag() {
+        let cli = Cli::try_parse_from(norm(&["boast", "--package", "crates:boast"])).unwrap();
+        let Command::About(a) = cli.command;
+        assert_eq!(a.packages, vec!["crates:boast".to_string()]);
     }
 
     #[test]

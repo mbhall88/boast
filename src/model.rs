@@ -206,13 +206,14 @@ impl Snapshot {
     }
 }
 
-/// One external handle a Project links to. v1 knows papers and code
-/// repositories; packages arrive in later tickets.
+/// One external handle a Project links to: a paper, a code repository, or a
+/// distribution package.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Identity {
     Paper(PaperId),
     Repo(RepoId),
+    Package(PackageId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,28 +279,87 @@ impl RepoId {
     }
 }
 
+/// A distribution package on a known registry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageId {
+    pub registry: Registry,
+    pub name: String,
+}
+
+/// A package registry `boast` knows how to query. More arrive in later
+/// tickets (Bioconda, PyPI, Homebrew — see ADR-0003).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Registry {
+    Crates,
+}
+
+impl Registry {
+    fn prefix(self) -> &'static str {
+        match self {
+            Registry::Crates => "crates",
+        }
+    }
+
+    fn parse(s: &str) -> Option<Registry> {
+        match s.to_ascii_lowercase().as_str() {
+            "crates" => Some(Registry::Crates),
+            _ => None,
+        }
+    }
+}
+
+impl PackageId {
+    /// Parse `registry:name`, e.g. `crates:boast`.
+    pub fn parse(input: &str) -> Result<PackageId, IdentityError> {
+        let s = input.trim();
+        if s.is_empty() {
+            return Err(IdentityError::Empty);
+        }
+        let (registry, name) = s
+            .split_once(':')
+            .ok_or_else(|| IdentityError::Unrecognised(input.to_string()))?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(IdentityError::Unrecognised(input.to_string()));
+        }
+        let registry = Registry::parse(registry)
+            .ok_or_else(|| IdentityError::UnknownRegistry(registry.to_string()))?;
+        Ok(PackageId {
+            registry,
+            name: name.to_string(),
+        })
+    }
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum IdentityError {
-    #[error("could not recognise '{0}' as a DOI, PubMed ID, or GitHub repo (packages arrive in a later release)")]
+    #[error(
+        "could not recognise '{0}' as a DOI, PubMed ID, GitHub repo, or package (registry:name)"
+    )]
     Unrecognised(String),
+    #[error("unknown package registry '{0}' (supported: crates)")]
+    UnknownRegistry(String),
     #[error("empty identifier")]
     Empty,
 }
 
 impl Identity {
-    /// Canonical string form used in Snapshots and Reports, e.g. `doi:10.x` or
-    /// `github:owner/name`.
+    /// Canonical string form used in Snapshots and Reports, e.g. `doi:10.x`,
+    /// `github:owner/name`, or `crates:name`.
     pub fn canonical(&self) -> String {
         match self {
             Identity::Paper(PaperId::Doi(d)) => format!("doi:{d}"),
             Identity::Paper(PaperId::Pmid(p)) => format!("pmid:{p}"),
             Identity::Repo(r) => format!("{}:{}/{}", r.host.prefix(), r.owner, r.name),
+            Identity::Package(p) => format!("{}:{}", p.registry.prefix(), p.name),
         }
     }
 
     /// Parse a user-supplied identifier. Accepts `doi:...`, a bare `10.x/...`
     /// DOI, a `https://doi.org/...` URL, `pmid:12345678`, a `github.com/...`
-    /// URL, or a bare `owner/name` GitHub repository shorthand.
+    /// URL, a bare `owner/name` GitHub repository shorthand, or a
+    /// `registry:name` package (e.g. `crates:boast`).
     pub fn parse(input: &str) -> Result<Identity, IdentityError> {
         let s = input.trim();
         if s.is_empty() {
@@ -331,6 +391,15 @@ impl Identity {
         // accepted via the explicit `--repo` flag, to avoid guessing.
         if lower.contains("github.com/") || lower.starts_with("git@github.com:") {
             return RepoId::parse(s).map(Identity::Repo);
+        }
+
+        // A `registry:name` package identifier, e.g. `crates:boast`. Gated on
+        // no slash after the colon so the `github:owner/name` repo shorthand
+        // (handled below) and any `scheme://` URL still fall through.
+        if let Some((prefix, rest)) = s.split_once(':') {
+            if !prefix.is_empty() && !rest.contains('/') {
+                return PackageId::parse(s).map(Identity::Package);
+            }
         }
 
         // Bare DOI: starts with "10." and contains a slash. Checked before the
@@ -450,6 +519,67 @@ mod tests {
         assert_eq!(
             Identity::Repo(RepoId::parse("BurntSushi/ripgrep").unwrap()).canonical(),
             "github:BurntSushi/ripgrep"
+        );
+        assert_eq!(
+            Identity::parse("crates:boast").unwrap().canonical(),
+            "crates:boast"
+        );
+    }
+
+    #[test]
+    fn parses_package_registry_colon_name() {
+        assert_eq!(
+            Identity::parse("crates:boast").unwrap(),
+            Identity::Package(PackageId {
+                registry: Registry::Crates,
+                name: "boast".into(),
+            })
+        );
+        // The `--package` shorthand goes through PackageId::parse directly.
+        assert_eq!(
+            PackageId::parse("crates:boast").unwrap(),
+            PackageId {
+                registry: Registry::Crates,
+                name: "boast".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_registry_is_a_clear_error() {
+        assert_eq!(
+            PackageId::parse("bioconda:samtools"),
+            Err(IdentityError::UnknownRegistry("bioconda".into()))
+        );
+        assert!(matches!(
+            Identity::parse("pypi:pysam"),
+            Err(IdentityError::UnknownRegistry(r)) if r == "pypi"
+        ));
+    }
+
+    #[test]
+    fn package_parse_rejects_missing_name_or_colon() {
+        assert!(matches!(
+            PackageId::parse("crates:"),
+            Err(IdentityError::Unrecognised(_))
+        ));
+        assert!(matches!(
+            PackageId::parse("crates"),
+            Err(IdentityError::Unrecognised(_))
+        ));
+    }
+
+    #[test]
+    fn bare_github_colon_shorthand_is_still_a_repo_not_a_package() {
+        // A slash after the colon means it's the `github:owner/name` repo
+        // shorthand, not an (unknown-registry) package attempt.
+        assert_eq!(
+            Identity::parse("github:BurntSushi/ripgrep").unwrap(),
+            Identity::Repo(RepoId {
+                host: RepoHost::GitHub,
+                owner: "BurntSushi".into(),
+                name: "ripgrep".into(),
+            })
         );
     }
 

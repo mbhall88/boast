@@ -1,6 +1,7 @@
-//! PyPI download-count Provider, via pypistats.org: the package's last-30-day
-//! download total (PyPI's own "recent" `last_month` bucket — see CONTEXT.md's
-//! Window glossary and ADR-0003).
+//! PyPI download-count Provider, via pypistats.org: the package's downloads
+//! for pypistats' own `last_month` recency bucket, reported as a trailing
+//! 30-day Window since pypistats doesn't publish an exact day boundary for it
+//! (CONTEXT.md classes "PyPI last-month" as trailing; ADR-0003).
 
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -52,7 +53,11 @@ impl Pypi {
                     identity: canonical.into(),
                     as_of: OffsetDateTime::now_utc(),
                     source: url.into(),
-                    note: Some("PyPI's own last-30-day bucket".into()),
+                    note: Some(
+                        "pypistats' \"last month\" bucket; treated as trailing 30 days since \
+                         pypistats doesn't publish an exact day boundary for it"
+                            .into(),
+                    ),
                 }],
                 metadata: None,
             },

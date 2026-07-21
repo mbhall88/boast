@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use time::macros::format_description;
 
-use crate::model::{Identity, PackageId, Project, RepoId};
+use crate::model::{Identity, IdentityError, PackageId, Project, RepoId};
 use crate::orchestrator;
 use crate::providers::default_providers_with_topic;
 use crate::report::render_terminal;
@@ -154,35 +154,45 @@ fn init_logging(verbose: u8, quiet: bool) {
         .init();
 }
 
+/// Parse each `value` with `parse`, wrap successes into an Identity with
+/// `wrap`, and push them onto `identities`. A bad identifier is a usage
+/// error, so this returns the CLI exit code on the first failure.
+fn extend_identities<T>(
+    identities: &mut Vec<Identity>,
+    values: &[String],
+    parse: impl Fn(&str) -> Result<T, IdentityError>,
+    wrap: impl Fn(T) -> Identity,
+) -> Result<(), i32> {
+    for value in values {
+        match parse(value) {
+            Ok(parsed) => identities.push(wrap(parsed)),
+            Err(e) => {
+                tracing::error!("{e}");
+                return Err(2);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run_about(args: AboutArgs) -> i32 {
     // Parse every identifier up front; a bad one is a usage error.
     let mut identities = Vec::new();
-    for target in &args.targets {
-        match Identity::parse(target) {
-            Ok(id) => identities.push(id),
-            Err(e) => {
-                tracing::error!("{e}");
-                return 2;
-            }
-        }
+    if let Err(code) = extend_identities(&mut identities, &args.targets, Identity::parse, |id| id) {
+        return code;
     }
-    for repo in &args.repos {
-        match RepoId::parse(repo) {
-            Ok(id) => identities.push(Identity::Repo(id)),
-            Err(e) => {
-                tracing::error!("{e}");
-                return 2;
-            }
-        }
+    if let Err(code) =
+        extend_identities(&mut identities, &args.repos, RepoId::parse, Identity::Repo)
+    {
+        return code;
     }
-    for package in &args.packages {
-        match PackageId::parse(package) {
-            Ok(id) => identities.push(Identity::Package(id)),
-            Err(e) => {
-                tracing::error!("{e}");
-                return 2;
-            }
-        }
+    if let Err(code) = extend_identities(
+        &mut identities,
+        &args.packages,
+        PackageId::parse,
+        Identity::Package,
+    ) {
+        return code;
     }
     for path in &args.from_file {
         let content = match read_source(path) {

@@ -291,7 +291,10 @@ pub struct PackageId {
 #[serde(rename_all = "snake_case")]
 pub enum Registry {
     Crates,
-    Bioconda,
+    /// Any Anaconda.org channel, e.g. `bioconda` or `conda-forge`. Its
+    /// `PackageId.name` is `channel/name` rather than a bare name, since one
+    /// registry now spans many independently-run channels.
+    Conda,
     Pypi,
     Homebrew,
 }
@@ -302,7 +305,7 @@ impl Registry {
     /// new registry only needs an entry here and in `prefix`/`parse`.
     const ALL: &'static [Registry] = &[
         Registry::Crates,
-        Registry::Bioconda,
+        Registry::Conda,
         Registry::Pypi,
         Registry::Homebrew,
     ];
@@ -310,7 +313,7 @@ impl Registry {
     fn prefix(self) -> &'static str {
         match self {
             Registry::Crates => "crates",
-            Registry::Bioconda => "bioconda",
+            Registry::Conda => "conda",
             Registry::Pypi => "pypi",
             Registry::Homebrew => "homebrew",
         }
@@ -319,7 +322,7 @@ impl Registry {
     fn parse(s: &str) -> Option<Registry> {
         match s.to_ascii_lowercase().as_str() {
             "crates" => Some(Registry::Crates),
-            "bioconda" => Some(Registry::Bioconda),
+            "conda" => Some(Registry::Conda),
             "pypi" => Some(Registry::Pypi),
             "homebrew" => Some(Registry::Homebrew),
             _ => None,
@@ -336,7 +339,9 @@ impl Registry {
 }
 
 impl PackageId {
-    /// Parse `registry:name`, e.g. `crates:boast`.
+    /// Parse `registry:name`, e.g. `crates:boast` or `conda:conda-forge/xtensor`.
+    /// A `conda` name must itself be `channel/name`, since Anaconda.org spans
+    /// many independently-run channels (bioconda, conda-forge, ...).
     pub fn parse(input: &str) -> Result<PackageId, IdentityError> {
         let s = input.trim();
         if s.is_empty() {
@@ -351,6 +356,14 @@ impl PackageId {
         }
         let registry = Registry::parse(registry)
             .ok_or_else(|| IdentityError::UnknownRegistry(registry.to_string()))?;
+        if registry == Registry::Conda {
+            let valid = name
+                .split_once('/')
+                .is_some_and(|(channel, pkg)| !channel.is_empty() && !pkg.is_empty());
+            if !valid {
+                return Err(IdentityError::CondaChannelRequired(name.to_string()));
+            }
+        }
         Ok(PackageId {
             registry,
             name: name.to_string(),
@@ -366,6 +379,8 @@ pub enum IdentityError {
     Unrecognised(String),
     #[error("unknown package registry '{0}' (supported: {supported})", supported = Registry::supported())]
     UnknownRegistry(String),
+    #[error("conda package '{0}' must be 'channel/name', e.g. 'conda-forge/xtensor' or 'bioconda/samtools'")]
+    CondaChannelRequired(String),
     #[error("empty identifier")]
     Empty,
 }
@@ -419,11 +434,15 @@ impl Identity {
             return RepoId::parse(s).map(Identity::Repo);
         }
 
-        // A `registry:name` package identifier, e.g. `crates:boast`. Gated on
-        // no slash after the colon so the `github:owner/name` repo shorthand
-        // (handled below) and any `scheme://` URL still fall through.
+        // A `registry:name` package identifier, e.g. `crates:boast` or
+        // `conda:conda-forge/xtensor`. A slash after the colon normally falls
+        // through instead (the `github:owner/name` repo shorthand, or any
+        // `scheme://` URL) — unless the prefix names a known registry, since
+        // only a registry like `conda` needs a slash in its own name.
         if let Some((prefix, rest)) = s.split_once(':') {
-            if !prefix.is_empty() && !rest.contains('/') {
+            let known_registry = Registry::parse(prefix).is_some();
+            let looks_like_package = !prefix.is_empty() && (!rest.contains('/') || known_registry);
+            if looks_like_package && !rest.is_empty() {
                 return PackageId::parse(s).map(Identity::Package);
             }
         }
@@ -575,7 +594,16 @@ mod tests {
     fn parses_every_known_registry() {
         for (input, registry, name) in [
             ("crates:boast", Registry::Crates, "boast"),
-            ("bioconda:samtools", Registry::Bioconda, "samtools"),
+            (
+                "conda:bioconda/samtools",
+                Registry::Conda,
+                "bioconda/samtools",
+            ),
+            (
+                "conda:conda-forge/xtensor",
+                Registry::Conda,
+                "conda-forge/xtensor",
+            ),
             ("pypi:pysam", Registry::Pypi, "pysam"),
             ("homebrew:samtools", Registry::Homebrew, "samtools"),
         ] {
@@ -600,6 +628,22 @@ mod tests {
             Identity::parse("docker:samtools"),
             Err(IdentityError::UnknownRegistry(r)) if r == "docker"
         ));
+    }
+
+    #[test]
+    fn conda_package_requires_a_channel() {
+        assert_eq!(
+            PackageId::parse("conda:samtools"),
+            Err(IdentityError::CondaChannelRequired("samtools".into()))
+        );
+        assert_eq!(
+            PackageId::parse("conda:/samtools"),
+            Err(IdentityError::CondaChannelRequired("/samtools".into()))
+        );
+        assert_eq!(
+            PackageId::parse("conda:bioconda/"),
+            Err(IdentityError::CondaChannelRequired("bioconda/".into()))
+        );
     }
 
     #[test]

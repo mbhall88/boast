@@ -1,6 +1,6 @@
 //! The curated default set of Providers.
 
-pub mod bioconda;
+pub mod anaconda;
 pub mod crates_io;
 pub mod crossref;
 pub mod github;
@@ -23,7 +23,7 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
         Box::new(crossref::Crossref),
         Box::new(github::GitHub::with_topic(topic)),
         Box::new(crates_io::CratesIo),
-        Box::new(bioconda::Bioconda),
+        Box::new(anaconda::Anaconda),
         Box::new(pypi::Pypi),
         Box::new(homebrew::Homebrew),
     ]

@@ -437,11 +437,11 @@ impl Identity {
         // A `registry:name` package identifier, e.g. `crates:boast` or
         // `conda:conda-forge/xtensor`. A slash after the colon normally falls
         // through instead (the `github:owner/name` repo shorthand, or any
-        // `scheme://` URL) — unless the prefix names a known registry, since
-        // only a registry like `conda` needs a slash in its own name.
+        // `scheme://` URL) — unless the prefix is specifically `conda`, the
+        // only registry whose own name needs a slash.
         if let Some((prefix, rest)) = s.split_once(':') {
-            let known_registry = Registry::parse(prefix).is_some();
-            let looks_like_package = !prefix.is_empty() && (!rest.contains('/') || known_registry);
+            let is_conda = Registry::parse(prefix) == Some(Registry::Conda);
+            let looks_like_package = !prefix.is_empty() && (!rest.contains('/') || is_conda);
             if looks_like_package && !rest.is_empty() {
                 return PackageId::parse(s).map(Identity::Package);
             }
@@ -670,6 +670,17 @@ mod tests {
                 name: "ripgrep".into(),
             })
         );
+    }
+
+    #[test]
+    fn only_conda_registry_tolerates_a_slash_in_its_name() {
+        // `conda` is the only registry whose own name needs a slash; a slash
+        // after any other registry's colon must not be treated as a package
+        // attempt (matches pre-conda behaviour for those registries).
+        assert!(!matches!(
+            Identity::parse("pypi:foo/bar"),
+            Ok(Identity::Package(_))
+        ));
     }
 
     #[test]

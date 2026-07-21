@@ -13,7 +13,7 @@ Impact data lives across many services with wildly different coverage, cost, ter
 **Default set (all keyless unless noted), grouped by Category:**
 
 - **Code:** GitHub (stars, forks, watchers, contributors, release-download total, repo age, topic-based Cohort rank).
-- **Downloads:** Bioconda/anaconda, PyPI, GitHub release assets, crates.io, Homebrew — reported per-channel, with a labelled Rollup.
+- **Downloads:** Anaconda.org (any channel — bioconda, conda-forge, or otherwise), PyPI, GitHub release assets, crates.io, Homebrew — reported per-channel, with a labelled Rollup.
 - **Citations:** OpenAlex (headline count + field-normalized **FWCI** + `citation_normalized_percentile`), Crossref (authoritative metadata), Europe PMC (life-sciences-native cross-check), Dimensions badge API (count + FCR + RCR).
 - **Attention:** open-access status (OpenAlex) + Wikipedia mentions as a keyless-lite default; Altmetric as an opt-in richer Provider.
 

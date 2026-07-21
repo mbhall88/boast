@@ -15,7 +15,7 @@ The name reads as a sentence: `boast about samtools`.
 1. As a tool author, I want to look up my tool's impact metrics with a single command, so that I can stop assembling them by hand from many websites.
 2. As a grant writer, I want a dated summary of a tool's reach, so that I can make defensible claims in a proposal.
 3. As a tool author, I want to describe my Project by its repository, so that I can get code-host metrics for it.
-4. As a tool author, I want to describe my Project by one or more distribution packages (e.g. `bioconda:samtools`, `pypi:pysam`, `crates:boast`), so that I can get download counts per channel.
+4. As a tool author, I want to describe my Project by one or more distribution packages (e.g. `conda:bioconda/samtools`, `pypi:pysam`, `crates:boast`), so that I can get download counts per channel.
 5. As a researcher, I want to describe my Project by a paper's DOI, so that I can get its citation metrics.
 6. As a researcher, I want to give a PubMed ID instead of a DOI (`pmid:31234567`), so that I can use whichever identifier I have to hand.
 7. As a user, I want a bare DOI/PMID/repo on the command line to "just work" without a subcommand, so that the common one-off case is frictionless.
@@ -75,7 +75,7 @@ The name reads as a sentence: `boast about samtools`.
 
 - **Language / form factor.** A Rust CLI plus an importable library crate. MIT licensed. Distributed via crates.io, Bioconda, and Homebrew.
 - **Central entity.** A **Project** aggregates zero or more **Identities**, each of a known kind: a code repository, a distribution package (registry + name), or a paper (DOI/PMID). A paper-only lookup is a Project with a single paper Identity.
-- **Identity syntax.** Repo: `owner/name` or a GitHub URL (host inferred, GitHub default). Package: `registry:name` (e.g. `bioconda:samtools`, `pypi:pysam`, `crates:boast`). Paper: a bare DOI or `pmid:<id>` (PMID resolved to DOI as needed).
+- **Identity syntax.** Repo: `owner/name` or a GitHub URL (host inferred, GitHub default). Package: `registry:name` (e.g. `conda:bioconda/samtools`, `pypi:pysam`, `crates:boast`) — a `conda` name is itself `channel/name`, since Anaconda.org spans many independently-run channels (bioconda, conda-forge, ...), not just one. Paper: a bare DOI or `pmid:<id>` (PMID resolved to DOI as needed).
 - **Providers.** Metrics come from pluggable **Providers** behind a common trait: given an Identity, a Provider returns zero or more **Metrics** or a non-value **Outcome**. The tool ships a curated default set; further Providers are optional and enabled via Manifest/flags. New Providers are added without touching the core.
 - **Default Provider set by Category.**
   - *Code:* GitHub — stars, forks, watchers, contributors, release-download total, repo age, and the topic-based **Cohort** rank.

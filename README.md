@@ -22,7 +22,7 @@ totals that never mix incompatible time windows.
 ```
 boast about 10.1234/journal.xyz          # a bare paper — one-liner
 boast about --repo owner/tool \          # a full Project
-            --package bioconda:tool \
+            --package conda:bioconda/tool \
             --doi 10.1234/journal.xyz
 boast render snapshots/2026-07-16.json --format markdown
 boast diff  snapshots/2026-01.json snapshots/2026-07.json

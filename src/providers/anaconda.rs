@@ -1,5 +1,12 @@
-//! Bioconda/anaconda.org download-count Provider: the package's cumulative
-//! download total across all versions and platforms (ADR-0003).
+//! Anaconda.org download-count Provider: the package's cumulative download
+//! total across all versions and platforms, for any channel on Anaconda.org
+//! (bioconda, conda-forge, or any other) — see ADR-0003.
+//!
+//! A `conda` package Identity names its channel in the package name itself
+//! (`channel/name`, e.g. `conda-forge/xtensor`), since one registry now spans
+//! many independently-run channels; `PackageId::parse` already rejects a
+//! `conda` name without a channel, so a missing split here should be
+//! unreachable in practice, but is handled defensively rather than panicking.
 
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -8,29 +15,34 @@ use crate::model::{Category, Identity, Metric, MetricValue, Outcome, PackageId, 
 use crate::provider::{classify_status, Provider};
 use crate::transport::Transport;
 
-const API_BASE: &str = "https://api.anaconda.org/package/bioconda/";
+const API_BASE: &str = "https://api.anaconda.org/package/";
 
-pub struct Bioconda;
+pub struct Anaconda;
 
 #[derive(Debug, Deserialize)]
 struct AnacondaPackage {
     ndownloads: Option<u64>,
 }
 
-impl Bioconda {
+impl Anaconda {
     fn package(identity: &Identity) -> Option<&PackageId> {
         match identity {
-            Identity::Package(p) if p.registry == Registry::Bioconda => Some(p),
+            Identity::Package(p) if p.registry == Registry::Conda => Some(p),
             _ => None,
         }
     }
 
-    fn classify(body: &str, url: &str, canonical: &str) -> Outcome {
+    /// Split a `conda` package's `channel/name` into its parts.
+    fn channel_and_name(package: &PackageId) -> Option<(&str, &str)> {
+        package.name.split_once('/')
+    }
+
+    fn classify(body: &str, url: &str, canonical: &str, channel: &str) -> Outcome {
         let pkg: AnacondaPackage = match serde_json::from_str(body) {
             Ok(p) => p,
             Err(e) => {
                 return Outcome::Failed {
-                    error: format!("unexpected Bioconda response: {e}"),
+                    error: format!("unexpected Anaconda.org response: {e}"),
                 }
             }
         };
@@ -42,7 +54,7 @@ impl Bioconda {
                     category: Category::Downloads,
                     value: MetricValue::Count(downloads),
                     window: Window::Cumulative,
-                    provider: "bioconda".into(),
+                    provider: channel.into(),
                     identity: canonical.into(),
                     as_of: OffsetDateTime::now_utc(),
                     source: url.into(),
@@ -51,15 +63,15 @@ impl Bioconda {
                 metadata: None,
             },
             None => Outcome::NotApplicable {
-                note: "Bioconda returned no download count".into(),
+                note: "Anaconda.org returned no download count".into(),
             },
         }
     }
 }
 
-impl Provider for Bioconda {
+impl Provider for Anaconda {
     fn name(&self) -> &'static str {
-        "bioconda"
+        "anaconda"
     }
 
     fn category(&self) -> Category {
@@ -73,10 +85,15 @@ impl Provider for Bioconda {
     fn fetch(&self, identity: &Identity, transport: &dyn Transport) -> Outcome {
         let Some(package) = Self::package(identity) else {
             return Outcome::NotApplicable {
-                note: "Bioconda only supports bioconda packages".into(),
+                note: "Anaconda.org only supports conda packages".into(),
             };
         };
-        let url = format!("{API_BASE}{}", package.name);
+        let Some((channel, name)) = Self::channel_and_name(package) else {
+            return Outcome::NotApplicable {
+                note: "conda package name must be 'channel/name'".into(),
+            };
+        };
+        let url = format!("{API_BASE}{channel}/{name}");
         let canonical = identity.canonical();
 
         let resp = match transport.get(&url) {
@@ -88,9 +105,9 @@ impl Provider for Bioconda {
             }
         };
 
-        match classify_status(resp.status, "Bioconda", "not found on Bioconda") {
+        match classify_status(resp.status, "Anaconda.org", "not found on Anaconda.org") {
             Some(outcome) => outcome,
-            None => Self::classify(&resp.body, &url, &canonical),
+            None => Self::classify(&resp.body, &url, &canonical, channel),
         }
     }
 }
@@ -101,20 +118,20 @@ mod tests {
     use crate::model::{PaperId, RepoId};
     use crate::transport::{MockTransport, TransportError};
 
-    fn package() -> Identity {
+    fn package(name: &str) -> Identity {
         Identity::Package(PackageId {
-            registry: Registry::Bioconda,
-            name: "samtools".into(),
+            registry: Registry::Conda,
+            name: name.into(),
         })
     }
 
     #[test]
     fn parses_downloads_from_cassette() {
-        let cassette = include_str!("../../tests/cassettes/bioconda_samtools.json");
+        let cassette = include_str!("../../tests/cassettes/conda_bioconda_samtools.json");
         let t =
             MockTransport::new().on("api.anaconda.org/package/bioconda/samtools", 200, cassette);
 
-        let outcome = Bioconda.fetch(&package(), &t);
+        let outcome = Anaconda.fetch(&package("bioconda/samtools"), &t);
         let metrics = match outcome {
             Outcome::Values { metrics, .. } => metrics,
             other => panic!("expected Values, got {other:?}"),
@@ -126,34 +143,51 @@ mod tests {
         assert_eq!(downloads.category, Category::Downloads);
         assert_eq!(downloads.value, MetricValue::Count(8_897_787));
         assert_eq!(downloads.window, Window::Cumulative);
+        // Attributed to the specific channel, not a generic "anaconda".
         assert_eq!(downloads.provider, "bioconda");
-        assert_eq!(downloads.identity, "bioconda:samtools");
+        assert_eq!(downloads.identity, "conda:bioconda/samtools");
+    }
+
+    #[test]
+    fn queries_the_declared_channel_not_always_bioconda() {
+        let cassette = r#"{"ndownloads": 42}"#;
+        let t = MockTransport::new().on(
+            "api.anaconda.org/package/conda-forge/xtensor",
+            200,
+            cassette,
+        );
+        let metrics = match Anaconda.fetch(&package("conda-forge/xtensor"), &t) {
+            Outcome::Values { metrics, .. } => metrics,
+            other => panic!("expected Values, got {other:?}"),
+        };
+        assert_eq!(metrics[0].provider, "conda-forge");
+        assert_eq!(metrics[0].identity, "conda:conda-forge/xtensor");
     }
 
     #[test]
     fn nonexistent_package_is_not_applicable_not_zero() {
         let t = MockTransport::new().on(
-            "api.anaconda.org/package/bioconda/",
+            "api.anaconda.org/package/",
             404,
             r#"{"error":"could not be found"}"#,
         );
         assert!(matches!(
-            Bioconda.fetch(&package(), &t),
+            Anaconda.fetch(&package("bioconda/samtools"), &t),
             Outcome::NotApplicable { .. }
         ));
     }
 
     #[test]
     fn rate_limit_and_server_error_are_failed() {
-        let t429 = MockTransport::new().on("api.anaconda.org/package/bioconda/", 429, "");
+        let t429 = MockTransport::new().on("api.anaconda.org/package/", 429, "");
         assert!(matches!(
-            Bioconda.fetch(&package(), &t429),
+            Anaconda.fetch(&package("bioconda/samtools"), &t429),
             Outcome::Failed { .. }
         ));
 
-        let t503 = MockTransport::new().on("api.anaconda.org/package/bioconda/", 503, "");
+        let t503 = MockTransport::new().on("api.anaconda.org/package/", 503, "");
         assert!(matches!(
-            Bioconda.fetch(&package(), &t503),
+            Anaconda.fetch(&package("bioconda/samtools"), &t503),
             Outcome::Failed { .. }
         ));
     }
@@ -161,11 +195,11 @@ mod tests {
     #[test]
     fn transport_error_is_failed() {
         let t = MockTransport::new().on_error(
-            "api.anaconda.org/package/bioconda/",
+            "api.anaconda.org/package/",
             TransportError::ConnectionFailed,
         );
         assert!(matches!(
-            Bioconda.fetch(&package(), &t),
+            Anaconda.fetch(&package("bioconda/samtools"), &t),
             Outcome::Failed { .. }
         ));
     }
@@ -178,9 +212,9 @@ mod tests {
             registry: Registry::Crates,
             name: "boast".into(),
         });
-        assert!(!Bioconda.supports(&doi));
-        assert!(!Bioconda.supports(&repo));
-        assert!(!Bioconda.supports(&crate_pkg));
-        assert!(Bioconda.supports(&package()));
+        assert!(!Anaconda.supports(&doi));
+        assert!(!Anaconda.supports(&repo));
+        assert!(!Anaconda.supports(&crate_pkg));
+        assert!(Anaconda.supports(&package("bioconda/samtools")));
     }
 }

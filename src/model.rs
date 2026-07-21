@@ -295,6 +295,11 @@ pub enum Registry {
 }
 
 impl Registry {
+    /// Every registry `boast` currently recognises. The single source of
+    /// truth for `IdentityError::UnknownRegistry`'s "supported" list, so a
+    /// new registry only needs an entry here and in `prefix`/`parse`.
+    const ALL: &'static [Registry] = &[Registry::Crates];
+
     fn prefix(self) -> &'static str {
         match self {
             Registry::Crates => "crates",
@@ -306,6 +311,14 @@ impl Registry {
             "crates" => Some(Registry::Crates),
             _ => None,
         }
+    }
+
+    fn supported() -> String {
+        Registry::ALL
+            .iter()
+            .map(|r| r.prefix())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -338,7 +351,7 @@ pub enum IdentityError {
         "could not recognise '{0}' as a DOI, PubMed ID, GitHub repo, or package (registry:name)"
     )]
     Unrecognised(String),
-    #[error("unknown package registry '{0}' (supported: crates)")]
+    #[error("unknown package registry '{0}' (supported: {supported})", supported = Registry::supported())]
     UnknownRegistry(String),
     #[error("empty identifier")]
     Empty,

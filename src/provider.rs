@@ -23,25 +23,30 @@ pub trait Provider {
 /// `NotApplicable`/`Failed` are never coerced to a value). Returns `None` for
 /// a 200 status, meaning the caller should parse the body itself.
 ///
-/// `provider` is the display name interpolated into the rate-limit/server-
-/// error/unexpected-status wording, which is identical across every
+/// `provider_name` is the display name interpolated into the rate-limit/
+/// server-error/unexpected-status wording, which is identical across every
 /// Provider; `not_found` is the Provider's own NotApplicable wording for a
 /// 404, since that one varies in shape (e.g. "not found in OpenAlex" vs
-/// "repository not found on GitHub").
-pub fn classify_status(status: u16, provider: &str, not_found: &str) -> Option<Outcome> {
+/// "repository not found on GitHub"). Only called from within this crate's
+/// own Providers, so it's not part of the library's public surface.
+pub(crate) fn classify_status(
+    status: u16,
+    provider_name: &str,
+    not_found: &str,
+) -> Option<Outcome> {
     match status {
         200 => None,
         404 => Some(Outcome::NotApplicable {
             note: not_found.to_string(),
         }),
         429 => Some(Outcome::Failed {
-            error: format!("rate limited by {provider} (429)"),
+            error: format!("rate limited by {provider_name} (429)"),
         }),
         s if (500..600).contains(&s) => Some(Outcome::Failed {
-            error: format!("{provider} server error ({s})"),
+            error: format!("{provider_name} server error ({s})"),
         }),
         s => Some(Outcome::Failed {
-            error: format!("unexpected {provider} status ({s})"),
+            error: format!("unexpected {provider_name} status ({s})"),
         }),
     }
 }

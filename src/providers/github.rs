@@ -8,7 +8,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::model::{Category, Identity, Metric, MetricValue, Outcome, RepoId, Window};
-use crate::provider::Provider;
+use crate::provider::{classify_status, Provider};
 use crate::transport::Transport;
 
 const API: &str = "https://api.github.com";
@@ -123,38 +123,23 @@ impl Provider for GitHub {
             }
         };
 
-        let core: GhRepo = match resp.status {
-            200 => match serde_json::from_str(&resp.body) {
-                Ok(c) => c,
-                Err(e) => {
-                    return Outcome::Failed {
-                        error: format!("unexpected GitHub response: {e}"),
-                    }
-                }
-            },
-            404 => {
-                return Outcome::NotApplicable {
-                    note: "repository not found on GitHub".into(),
-                }
-            }
-            403 => {
+        // 403 is GitHub-specific (an exhausted rate limit or a private repo),
+        // so it's handled here rather than in the shared classifier.
+        if resp.status == 403 {
+            return Outcome::Failed {
+                error: "GitHub rate limit or access denied (403); set GITHUB_TOKEN".into(),
+            };
+        }
+        if let Some(outcome) =
+            classify_status(resp.status, "GitHub", "repository not found on GitHub")
+        {
+            return outcome;
+        }
+        let core: GhRepo = match serde_json::from_str(&resp.body) {
+            Ok(c) => c,
+            Err(e) => {
                 return Outcome::Failed {
-                    error: "GitHub rate limit or access denied (403); set GITHUB_TOKEN".into(),
-                }
-            }
-            429 => {
-                return Outcome::Failed {
-                    error: "rate limited by GitHub (429)".into(),
-                }
-            }
-            s if (500..600).contains(&s) => {
-                return Outcome::Failed {
-                    error: format!("GitHub server error ({s})"),
-                }
-            }
-            s => {
-                return Outcome::Failed {
-                    error: format!("unexpected GitHub status ({s})"),
+                    error: format!("unexpected GitHub response: {e}"),
                 }
             }
         };

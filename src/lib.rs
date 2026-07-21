@@ -15,6 +15,6 @@ pub mod report;
 pub mod transport;
 
 pub use model::{
-    Category, FetchResult, Identity, Metric, MetricValue, Outcome, PaperId, PaperMetadata, Project,
-    RepoHost, RepoId, Snapshot, Window,
+    Category, FetchResult, Identity, Metric, MetricValue, Outcome, PackageId, PaperId,
+    PaperMetadata, Project, Registry, RepoHost, RepoId, Snapshot, Window,
 };

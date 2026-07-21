@@ -1,0 +1,12 @@
+{
+  "crate": {
+    "id": "boast",
+    "name": "boast",
+    "description": "Gather reach and impact metrics for research software.",
+    "downloads": 842617,
+    "max_stable_version": "0.1.0",
+    "repository": "https://github.com/mbhall88/boast",
+    "created_at": "2026-01-05T12:00:00Z",
+    "updated_at": "2026-07-01T12:00:00Z"
+  }
+}

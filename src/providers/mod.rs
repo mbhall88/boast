@@ -1,5 +1,6 @@
 //! The curated default set of Providers.
 
+pub mod crates_io;
 pub mod crossref;
 pub mod github;
 pub mod openalex;
@@ -18,5 +19,6 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
         Box::new(openalex::OpenAlex),
         Box::new(crossref::Crossref),
         Box::new(github::GitHub::with_topic(topic)),
+        Box::new(crates_io::CratesIo),
     ]
 }

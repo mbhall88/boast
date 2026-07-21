@@ -33,7 +33,7 @@ impl OpenAlex {
         match identity {
             Identity::Paper(PaperId::Doi(d)) => Some(format!("doi:{d}")),
             Identity::Paper(PaperId::Pmid(p)) => Some(format!("pmid:{p}")),
-            Identity::Repo(_) => None,
+            Identity::Repo(_) | Identity::Package(_) => None,
         }
     }
 

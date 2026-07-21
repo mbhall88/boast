@@ -286,29 +286,42 @@ pub struct PackageId {
     pub name: String,
 }
 
-/// A package registry `boast` knows how to query. More arrive in later
-/// tickets (Bioconda, PyPI, Homebrew — see ADR-0003).
+/// A package registry `boast` knows how to query (see ADR-0003).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Registry {
     Crates,
+    Bioconda,
+    Pypi,
+    Homebrew,
 }
 
 impl Registry {
     /// Every registry `boast` currently recognises. The single source of
     /// truth for `IdentityError::UnknownRegistry`'s "supported" list, so a
     /// new registry only needs an entry here and in `prefix`/`parse`.
-    const ALL: &'static [Registry] = &[Registry::Crates];
+    const ALL: &'static [Registry] = &[
+        Registry::Crates,
+        Registry::Bioconda,
+        Registry::Pypi,
+        Registry::Homebrew,
+    ];
 
     fn prefix(self) -> &'static str {
         match self {
             Registry::Crates => "crates",
+            Registry::Bioconda => "bioconda",
+            Registry::Pypi => "pypi",
+            Registry::Homebrew => "homebrew",
         }
     }
 
     fn parse(s: &str) -> Option<Registry> {
         match s.to_ascii_lowercase().as_str() {
             "crates" => Some(Registry::Crates),
+            "bioconda" => Some(Registry::Bioconda),
+            "pypi" => Some(Registry::Pypi),
+            "homebrew" => Some(Registry::Homebrew),
             _ => None,
         }
     }
@@ -559,14 +572,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_every_known_registry() {
+        for (input, registry, name) in [
+            ("crates:boast", Registry::Crates, "boast"),
+            ("bioconda:samtools", Registry::Bioconda, "samtools"),
+            ("pypi:pysam", Registry::Pypi, "pysam"),
+            ("homebrew:samtools", Registry::Homebrew, "samtools"),
+        ] {
+            assert_eq!(
+                Identity::parse(input).unwrap(),
+                Identity::Package(PackageId {
+                    registry,
+                    name: name.into(),
+                }),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
     fn unknown_registry_is_a_clear_error() {
         assert_eq!(
-            PackageId::parse("bioconda:samtools"),
-            Err(IdentityError::UnknownRegistry("bioconda".into()))
+            PackageId::parse("npm:left-pad"),
+            Err(IdentityError::UnknownRegistry("npm".into()))
         );
         assert!(matches!(
-            Identity::parse("pypi:pysam"),
-            Err(IdentityError::UnknownRegistry(r)) if r == "pypi"
+            Identity::parse("docker:samtools"),
+            Err(IdentityError::UnknownRegistry(r)) if r == "docker"
         ));
     }
 

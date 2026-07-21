@@ -1,0 +1,22 @@
+{
+  "name": "samtools",
+  "full_name": "samtools",
+  "desc": "Tools for manipulating next-generation sequencing data",
+  "homepage": "https://www.htslib.org/",
+  "analytics": {
+    "install": {
+      "30d": {
+        "samtools": 466,
+        "samtools --HEAD": 2
+      },
+      "90d": {
+        "samtools": 1152,
+        "samtools --HEAD": 4
+      },
+      "365d": {
+        "samtools": 5714,
+        "samtools --HEAD": 9
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 
 use crate::model::{Category, Identity, Metric, MetricValue, Outcome, PackageId, Registry, Window};
-use crate::provider::Provider;
+use crate::provider::{classify_status, Provider};
 use crate::transport::Transport;
 
 const API_BASE: &str = "https://crates.io/api/v1/crates/";
@@ -94,20 +94,9 @@ impl Provider for CratesIo {
             }
         };
 
-        match resp.status {
-            200 => Self::classify(&resp.body, &url, &canonical),
-            404 => Outcome::NotApplicable {
-                note: "not found on crates.io".into(),
-            },
-            429 => Outcome::Failed {
-                error: "rate limited by crates.io (429)".into(),
-            },
-            s if (500..600).contains(&s) => Outcome::Failed {
-                error: format!("crates.io server error ({s})"),
-            },
-            s => Outcome::Failed {
-                error: format!("unexpected crates.io status ({s})"),
-            },
+        match classify_status(resp.status, "crates.io", "not found on crates.io") {
+            Some(outcome) => outcome,
+            None => Self::classify(&resp.body, &url, &canonical),
         }
     }
 }

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 
 use crate::model::{Category, Identity, Metric, MetricValue, Outcome, PaperId, Window};
-use crate::provider::Provider;
+use crate::provider::{classify_status, Provider};
 use crate::transport::Transport;
 
 const API_BASE: &str = "https://api.openalex.org/works/";
@@ -149,20 +149,9 @@ impl Provider for OpenAlex {
             }
         };
 
-        match resp.status {
-            200 => Self::classify(&resp.body, &url, &canonical),
-            404 => Outcome::NotApplicable {
-                note: "not found in OpenAlex".into(),
-            },
-            429 => Outcome::Failed {
-                error: "rate limited by OpenAlex (429)".into(),
-            },
-            s if (500..600).contains(&s) => Outcome::Failed {
-                error: format!("OpenAlex server error ({s})"),
-            },
-            s => Outcome::Failed {
-                error: format!("unexpected OpenAlex status ({s})"),
-            },
+        match classify_status(resp.status, "OpenAlex", "not found in OpenAlex") {
+            Some(outcome) => outcome,
+            None => Self::classify(&resp.body, &url, &canonical),
         }
     }
 }

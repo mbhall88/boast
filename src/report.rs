@@ -5,6 +5,7 @@
 use time::format_description::well_known::Rfc3339;
 
 use crate::model::{Category, Outcome, Snapshot};
+use crate::rollup;
 
 const CATEGORY_ORDER: [Category; 4] = [
     Category::Code,
@@ -72,6 +73,30 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
                 out.push_str(line.trim_end());
                 out.push('\n');
             }
+        }
+    }
+
+    let downloads = snapshot
+        .metrics()
+        .filter(|m| m.category == Category::Downloads);
+    let rollups = rollup::compute(downloads);
+    if !rollups.is_empty() {
+        out.push_str("\n═══ Downloads Rollup (derived — see channels above) ═══\n");
+        for r in &rollups {
+            // Named by identity, not just provider — two Identities on the
+            // same provider (e.g. two crates.io packages) must still be told
+            // apart, per CONTEXT.md's "name every Metric it includes".
+            let breakdown: Vec<String> = r
+                .channels
+                .iter()
+                .map(|c| format!("{} ({})", c.identity, c.value))
+                .collect();
+            out.push_str(&format!(
+                "  {} {} = {}\n",
+                r.total,
+                r.window.describe(),
+                breakdown.join(" + "),
+            ));
         }
     }
 
@@ -235,5 +260,113 @@ mod tests {
         let repo_pos = out.find("github:o/n").unwrap();
         assert!(doi_pos < repo_pos);
         assert!(out.contains("stars"));
+    }
+
+    fn downloads_metric(provider: &str, identity: &str, value: u64, window: Window) -> Metric {
+        Metric {
+            name: "downloads".into(),
+            category: Category::Downloads,
+            value: MetricValue::Count(value),
+            window,
+            provider: provider.into(),
+            identity: identity.into(),
+            as_of: OffsetDateTime::UNIX_EPOCH,
+            source: format!("https://example.com/{provider}"),
+            note: None,
+        }
+    }
+
+    fn downloads_result(provider: &str, identity: &str, value: u64, window: Window) -> FetchResult {
+        FetchResult {
+            provider: provider.into(),
+            identity: identity.into(),
+            category: Category::Downloads,
+            outcome: Outcome::Values {
+                metrics: vec![downloads_metric(provider, identity, value, window)],
+                metadata: None,
+            },
+        }
+    }
+
+    #[test]
+    fn shows_a_labelled_rollup_across_channels_with_a_shared_window() {
+        let mut snap = snapshot_with(vec![
+            downloads_result("crates.io", "crates:boast", 100, Window::Cumulative),
+            downloads_result("bioconda", "conda:bioconda/boast", 50, Window::Cumulative),
+        ]);
+        snap.identities = vec!["crates:boast".into(), "conda:bioconda/boast".into()];
+
+        let out = render_terminal(&snap);
+        assert!(out.contains("Downloads Rollup"));
+        assert!(out.contains("derived"));
+        assert!(out.contains("150")); // the summed total
+                                      // Named by identity so two Identities on the same provider (e.g. two
+                                      // crates.io packages) would still be distinguishable.
+        assert!(out.contains("crates:boast (100)"));
+        assert!(out.contains("conda:bioconda/boast (50)"));
+    }
+
+    #[test]
+    fn rollup_distinguishes_two_identities_on_the_same_provider() {
+        let mut snap = snapshot_with(vec![
+            downloads_result("crates.io", "crates:boast", 100, Window::Cumulative),
+            downloads_result("crates.io", "crates:boast-cli", 25, Window::Cumulative),
+        ]);
+        snap.identities = vec!["crates:boast".into(), "crates:boast-cli".into()];
+
+        let out = render_terminal(&snap);
+        assert!(out.contains("125")); // the summed total
+        assert!(out.contains("crates:boast (100)"));
+        assert!(out.contains("crates:boast-cli (25)"));
+    }
+
+    #[test]
+    fn no_rollup_when_windows_are_incompatible_or_theres_only_one_channel() {
+        let mut snap = snapshot_with(vec![downloads_result(
+            "crates.io",
+            "crates:boast",
+            100,
+            Window::Cumulative,
+        )]);
+        snap.identities = vec!["crates:boast".into()];
+        assert!(!render_terminal(&snap).contains("Rollup"));
+
+        let mut snap = snapshot_with(vec![
+            downloads_result("crates.io", "crates:boast", 100, Window::Cumulative),
+            downloads_result(
+                "homebrew",
+                "homebrew:boast",
+                50,
+                Window::Trailing { days: 30 },
+            ),
+        ]);
+        snap.identities = vec!["crates:boast".into(), "homebrew:boast".into()];
+        assert!(!render_terminal(&snap).contains("Rollup"));
+    }
+
+    #[test]
+    fn two_rollup_groups_share_one_heading() {
+        let mut snap = snapshot_with(vec![
+            downloads_result("crates.io", "crates:boast", 100, Window::Cumulative),
+            downloads_result("bioconda", "conda:bioconda/boast", 50, Window::Cumulative),
+            downloads_result("pypi", "pypi:boast", 7, Window::Trailing { days: 30 }),
+            downloads_result(
+                "homebrew",
+                "homebrew:boast",
+                3,
+                Window::Trailing { days: 30 },
+            ),
+        ]);
+        snap.identities = vec![
+            "crates:boast".into(),
+            "conda:bioconda/boast".into(),
+            "pypi:boast".into(),
+            "homebrew:boast".into(),
+        ];
+
+        let out = render_terminal(&snap);
+        assert_eq!(out.matches("Downloads Rollup").count(), 1);
+        assert!(out.contains("150 all-time"));
+        assert!(out.contains("10 last 30 days"));
     }
 }

@@ -3,6 +3,7 @@
 pub mod anaconda;
 pub mod crates_io;
 pub mod crossref;
+pub mod dimensions;
 pub mod github;
 pub mod homebrew;
 pub mod openalex;
@@ -21,6 +22,7 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
     vec![
         Box::new(openalex::OpenAlex),
         Box::new(crossref::Crossref),
+        Box::new(dimensions::Dimensions),
         Box::new(github::GitHub::with_topic(topic)),
         Box::new(crates_io::CratesIo),
         Box::new(anaconda::Anaconda),

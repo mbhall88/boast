@@ -58,20 +58,29 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
             let w_window = rows.iter().map(|r| r.window.len()).max().unwrap_or(0);
             let w_provider = rows.iter().map(|r| r.provider.len()).max().unwrap_or(0);
 
+            // A detail long enough to threaten the fixed-width columns (e.g. a
+            // Provider's licence/terms notice) gets its own indented line
+            // instead of being appended to the row, which stays compact.
+            const INLINE_DETAIL_LIMIT: usize = 80;
+
             for r in rows {
-                let mut line = format!(
+                let line = format!(
                     "  {name:<w_name$}  {value:>w_value$}  {window:<w_window$}  {provider:<w_provider$}",
                     name = r.name,
                     value = r.value,
                     window = r.window,
                     provider = r.provider,
                 );
-                if !r.detail.is_empty() {
-                    line.push_str(&format!("  {}", r.detail));
-                }
                 // Trim trailing whitespace left by empty columns.
                 out.push_str(line.trim_end());
-                out.push('\n');
+                if r.detail.is_empty() {
+                    out.push('\n');
+                } else if r.detail.len() > INLINE_DETAIL_LIMIT {
+                    out.push('\n');
+                    out.push_str(&format!("      {}\n", r.detail));
+                } else {
+                    out.push_str(&format!("  {}\n", r.detail));
+                }
             }
         }
     }
@@ -176,6 +185,39 @@ mod tests {
             source: "https://api.openalex.org/works/doi:10.1/x".into(),
             note: None,
         }
+    }
+
+    #[test]
+    fn long_detail_wraps_to_its_own_indented_line_short_detail_stays_inline() {
+        let long_note = "x".repeat(120);
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "dimensions".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![
+                    Metric {
+                        note: Some(long_note.clone()),
+                        provider: "dimensions".into(),
+                        ..metric("citations", MetricValue::Count(5))
+                    },
+                    Metric {
+                        note: Some("short".into()),
+                        provider: "dimensions".into(),
+                        ..metric("fcr", MetricValue::Real(1.0))
+                    },
+                ],
+                metadata: None,
+            },
+        }]);
+        let out = render_terminal(&snap);
+        assert!(out.contains(&long_note));
+        // The long note sits alone on its own line, not appended to the row.
+        let long_line = out.lines().find(|l| l.contains(&long_note)).unwrap();
+        assert!(!long_line.contains("citations"));
+        // The short note still shares a line with its row.
+        let short_line = out.lines().find(|l| l.contains("short")).unwrap();
+        assert!(short_line.contains("fcr"));
     }
 
     #[test]

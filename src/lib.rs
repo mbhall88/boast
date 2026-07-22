@@ -12,6 +12,7 @@ pub mod orchestrator;
 pub mod provider;
 pub mod providers;
 pub mod report;
+pub mod rollup;
 pub mod transport;
 
 pub use model::{

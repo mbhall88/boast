@@ -41,8 +41,10 @@ fn rollup_sums_two_channels_sharing_a_cumulative_window() {
     assert!(report.contains("Downloads Rollup"));
     assert!(report.contains("derived"));
     assert!(report.contains("9740404")); // 842617 + 8897787
-    assert!(report.contains("crates.io (842617)"));
-    assert!(report.contains("bioconda (8897787)"));
+                                         // Named by identity, so channels stay traceable back to the identity
+                                         // sections above even if two Identities ever shared a provider.
+    assert!(report.contains("crates:boast (842617)"));
+    assert!(report.contains("conda:bioconda/samtools (8897787)"));
 }
 
 #[test]

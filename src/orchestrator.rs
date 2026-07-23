@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn assembles_snapshot_with_metrics_and_no_failures() {
         let body = r#"{"cited_by_count": 10, "fwci": 2.0, "citation_normalized_percentile": null}"#;
-        // OpenAlex and Dimensions return metrics; Crossref has no record for this DOI.
+        // OpenAlex, Dimensions, and Europe PMC return metrics; Crossref has no record for this DOI.
         let t = MockTransport::new()
             .on("api.openalex.org/works/doi:", 200, body)
             .on("api.crossref.org/works/", 404, "")
@@ -77,6 +77,11 @@ mod tests {
                 "metrics-api.dimensions.ai/doi/",
                 200,
                 r#"{"times_cited": 5, "field_citation_ratio": null, "relative_citation_ratio": null, "license": null}"#,
+            )
+            .on(
+                "ebi.ac.uk/europepmc/webservices/rest/search",
+                200,
+                r#"{"hitCount":1,"resultList":{"result":[{"citedByCount":3}]}}"#,
             );
 
         let snap = run(&project(), &default_providers(), &t);
@@ -84,20 +89,25 @@ mod tests {
         assert_eq!(snap.schema_version, Snapshot::SCHEMA_VERSION);
         assert_eq!(snap.identities, vec!["doi:10.1/x".to_string()]);
         assert!(!snap.has_failures());
-        assert_eq!(snap.metrics().count(), 3);
+        assert_eq!(snap.metrics().count(), 4);
     }
 
     #[test]
     fn records_failure_without_aborting() {
-        // OpenAlex fails; Crossref and Dimensions are fine — one dead Provider
-        // must not block others.
+        // OpenAlex fails; Crossref, Dimensions, and Europe PMC are fine — one
+        // dead Provider must not block others.
         let t = MockTransport::new()
             .on_error(
                 "api.openalex.org/works/doi:",
                 TransportError::ConnectionFailed,
             )
             .on("api.crossref.org/works/", 404, "")
-            .on("metrics-api.dimensions.ai/doi/", 404, "");
+            .on("metrics-api.dimensions.ai/doi/", 404, "")
+            .on(
+                "ebi.ac.uk/europepmc/webservices/rest/search",
+                200,
+                r#"{"hitCount":0,"resultList":{"result":[]}}"#,
+            );
         let snap = run(&project(), &default_providers(), &t);
 
         assert!(snap.has_failures());

@@ -3,7 +3,8 @@
 //! from recorded responses in tests (see [`MockTransport`]). The production
 //! implementation is rustls-only (ADR-0004).
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -57,13 +58,27 @@ pub trait Transport {
     }
 }
 
-/// Default User-Agent identifying the tool.
-pub fn default_user_agent() -> String {
-    format!(
-        "boast/{} (+{})",
-        env!("CARGO_PKG_VERSION"),
-        "https://github.com/mbhall88/boast"
-    )
+/// Reads the polite-pool contact email from `BOAST_CONTACT_EMAIL`. Read only
+/// from the environment, never from a Manifest — the Manifest holds Projects
+/// and settings only and is meant to be committed/shared, never secrets or
+/// personal contact details (see docs/spec "Configuration and secrets").
+pub fn polite_contact_email() -> Option<String> {
+    std::env::var("BOAST_CONTACT_EMAIL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+}
+
+/// The tool's User-Agent, optionally extended with a contact email so
+/// OpenAlex/Crossref admit requests to their faster "polite pool".
+pub fn build_user_agent(contact_email: Option<&str>) -> String {
+    let repo = "https://github.com/mbhall88/boast";
+    match contact_email {
+        Some(email) => format!(
+            "boast/{} (+{repo}; mailto:{email})",
+            env!("CARGO_PKG_VERSION")
+        ),
+        None => format!("boast/{} (+{repo})", env!("CARGO_PKG_VERSION")),
+    }
 }
 
 /// Production transport: a pooled ureq agent over rustls. Configured so that
@@ -82,7 +97,7 @@ impl UreqTransport {
             .build();
         Self {
             agent: config.into(),
-            user_agent: default_user_agent(),
+            user_agent: build_user_agent(polite_contact_email().as_deref()),
         }
     }
 }
@@ -137,6 +152,109 @@ impl Transport for UreqTransport {
     }
 }
 
+/// A transient HTTP status worth retrying: 429 (rate limited) or any 5xx
+/// (server error). A 4xx other than 429 is a permanent classification
+/// (`NotApplicable`, etc.) and must never be retried. Shared with
+/// `provider::classify_status`'s own 429/5xx handling so the two stay in
+/// sync on what counts as transient.
+pub(crate) fn is_transient_status(status: u16) -> bool {
+    status == 429 || (500..600).contains(&status)
+}
+
+/// A transient transport failure worth retrying. `Other` (which also
+/// swallows some real network blips ureq doesn't distinguish as a timeout or
+/// connection failure — DNS, TLS, a broken pipe) and `Body` are not retried:
+/// since we can't positively identify them as transient, retrying risks
+/// masking a permanent error instead.
+fn is_transient_error(err: &TransportError) -> bool {
+    matches!(
+        err,
+        TransportError::Timeout | TransportError::ConnectionFailed
+    )
+}
+
+/// Bounded exponential-backoff policy for retrying a transient failure
+/// before giving up. A persistently failing fetch still ends as an error
+/// status/`Err` once the budget is spent — never retried forever — leaving
+/// the existing Provider classification (`classify_status`) to turn it into
+/// `Failed`.
+#[derive(Debug, Clone, Copy)]
+pub struct RetryPolicy {
+    /// Retries attempted after the first try (`max_retries = 3` means up to
+    /// 4 total attempts).
+    pub max_retries: u32,
+    /// Delay before the first retry; doubles on each subsequent retry.
+    pub base_delay: Duration,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            base_delay: Duration::from_millis(500),
+        }
+    }
+}
+
+/// Wraps any [`Transport`] with bounded exponential backoff over transient
+/// failures (429, 5xx, timeout, connection failure), so a momentary
+/// rate-limit or blip doesn't cost a Provider its data.
+pub struct RetryingTransport<T: Transport> {
+    inner: T,
+    policy: RetryPolicy,
+    sleep: Box<dyn Fn(Duration) + Send + Sync>,
+}
+
+impl<T: Transport> RetryingTransport<T> {
+    /// Wrap `inner` with the default retry policy, sleeping for real between
+    /// attempts.
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner,
+            policy: RetryPolicy::default(),
+            sleep: Box::new(std::thread::sleep),
+        }
+    }
+
+    /// Wrap `inner` with an explicit policy and a custom `sleep`, so tests can
+    /// exercise retry/backoff without a real wall-clock delay. Crate-internal
+    /// only — not part of the public API surface.
+    #[cfg(test)]
+    pub(crate) fn with_policy_and_sleep(
+        inner: T,
+        policy: RetryPolicy,
+        sleep: impl Fn(Duration) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            inner,
+            policy,
+            sleep: Box::new(sleep),
+        }
+    }
+}
+
+impl<T: Transport> Transport for RetryingTransport<T> {
+    fn get_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<HttpResponse, TransportError> {
+        let mut attempt = 0;
+        loop {
+            let outcome = self.inner.get_with_headers(url, headers);
+            let transient = match &outcome {
+                Ok(resp) => is_transient_status(resp.status),
+                Err(e) => is_transient_error(e),
+            };
+            if !transient || attempt >= self.policy.max_retries {
+                return outcome;
+            }
+            (self.sleep)(self.policy.base_delay * 2u32.pow(attempt));
+            attempt += 1;
+        }
+    }
+}
+
 /// Offline transport for tests and cassettes. Routes are matched by URL
 /// substring in registration order; an unmatched URL panics so tests never
 /// accidentally hit the network.
@@ -152,6 +270,9 @@ enum MockReply {
         headers: HashMap<String, String>,
     },
     Error(TransportError),
+    /// A scripted queue of `(status, body)` replies: each call consumes the
+    /// next entry in order; once only one is left, it repeats.
+    Sequence(RefCell<VecDeque<(u16, String)>>),
 }
 
 impl MockTransport {
@@ -201,6 +322,20 @@ impl MockTransport {
             .push((url_contains.to_string(), MockReply::Error(err)));
         self
     }
+
+    /// Reply with a scripted sequence of `(status, body)` responses for a
+    /// matching URL: each call consumes the next entry in order; once only
+    /// one is left, it repeats. Lets tests script retry/backoff behaviour
+    /// (e.g. 429 then 200).
+    pub fn on_sequence(mut self, url_contains: &str, replies: &[(u16, &str)]) -> Self {
+        self.routes.push((
+            url_contains.to_string(),
+            MockReply::Sequence(RefCell::new(
+                replies.iter().map(|(s, b)| (*s, b.to_string())).collect(),
+            )),
+        ));
+        self
+    }
 }
 
 impl Transport for MockTransport {
@@ -223,6 +358,23 @@ impl Transport for MockTransport {
                         headers: headers.clone(),
                     }),
                     MockReply::Error(e) => Err(e.clone()),
+                    MockReply::Sequence(queue) => {
+                        let mut queue = queue.borrow_mut();
+                        let (status, body) = if queue.len() > 1 {
+                            queue.pop_front().expect("checked non-empty above")
+                        } else {
+                            queue
+                                .front()
+                                .cloned()
+                                .expect("on_sequence given an empty reply list")
+                        };
+                        Ok(HttpResponse {
+                            status,
+                            body,
+                            url: url.to_string(),
+                            headers: HashMap::new(),
+                        })
+                    }
                 };
             }
         }
@@ -268,5 +420,119 @@ mod tests {
     #[should_panic(expected = "no route registered")]
     fn mock_panics_on_unmatched() {
         let _ = MockTransport::new().get("https://unmocked.example");
+    }
+
+    #[test]
+    fn mock_sequence_advances_per_call_then_repeats_the_last_reply() {
+        let t = MockTransport::new().on_sequence("example.com", &[(429, ""), (200, "ok")]);
+        assert_eq!(t.get("https://example.com").unwrap().status, 429);
+        assert_eq!(t.get("https://example.com").unwrap().status, 200);
+        // Exhausted: the last scripted reply keeps repeating.
+        assert_eq!(t.get("https://example.com").unwrap().status, 200);
+    }
+
+    #[test]
+    fn builds_user_agent_with_and_without_a_contact_email() {
+        let bare = build_user_agent(None);
+        assert!(bare.starts_with("boast/"));
+        assert!(bare.contains("github.com/mbhall88/boast"));
+        assert!(!bare.contains("mailto:"));
+
+        let polite = build_user_agent(Some("me@example.com"));
+        assert!(polite.contains("mailto:me@example.com"));
+        assert!(polite.contains("github.com/mbhall88/boast"));
+    }
+
+    /// Records every delay passed to a fake `sleep`, so tests can assert
+    /// backoff happened (and how many times) without a real wall-clock wait.
+    fn recording_sleep() -> (
+        impl Fn(Duration) + Send + Sync + 'static,
+        std::sync::Arc<std::sync::Mutex<Vec<Duration>>>,
+    ) {
+        let delays = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorder = delays.clone();
+        (move |d: Duration| recorder.lock().unwrap().push(d), delays)
+    }
+
+    #[test]
+    fn a_429_then_200_succeeds_after_one_backoff_at_the_transport_layer() {
+        let inner = MockTransport::new().on_sequence("example.com", &[(429, ""), (200, "ok-body")]);
+        let (sleep, delays) = recording_sleep();
+        let t = RetryingTransport::with_policy_and_sleep(inner, RetryPolicy::default(), sleep);
+
+        let resp = t.get("https://example.com").unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body, "ok-body");
+        assert_eq!(delays.lock().unwrap().len(), 1, "exactly one retry backoff");
+    }
+
+    #[test]
+    fn persistent_429_is_bounded_and_ends_as_the_last_response() {
+        let inner = MockTransport::new().on("example.com", 429, "still limited");
+        let (sleep, delays) = recording_sleep();
+        let policy = RetryPolicy {
+            max_retries: 2,
+            base_delay: Duration::from_millis(1),
+        };
+        let t = RetryingTransport::with_policy_and_sleep(inner, policy, sleep);
+
+        let resp = t.get("https://example.com").unwrap();
+        assert_eq!(resp.status, 429, "never coerced into a fake success");
+        // Bounded: exactly max_retries backoffs, never retried forever.
+        assert_eq!(delays.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn persistent_timeout_is_bounded_and_ends_as_an_error() {
+        let inner = MockTransport::new().on_error("example.com", TransportError::Timeout);
+        let (sleep, delays) = recording_sleep();
+        let policy = RetryPolicy {
+            max_retries: 2,
+            base_delay: Duration::from_millis(1),
+        };
+        let t = RetryingTransport::with_policy_and_sleep(inner, policy, sleep);
+
+        assert_eq!(t.get("https://example.com"), Err(TransportError::Timeout));
+        assert_eq!(delays.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn backoff_delay_doubles_each_retry() {
+        let inner = MockTransport::new().on("example.com", 503, "");
+        let (sleep, delays) = recording_sleep();
+        let policy = RetryPolicy {
+            max_retries: 3,
+            base_delay: Duration::from_millis(10),
+        };
+        let t = RetryingTransport::with_policy_and_sleep(inner, policy, sleep);
+
+        let _ = t.get("https://example.com");
+        let seen = delays.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            vec![
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+                Duration::from_millis(40),
+            ]
+        );
+    }
+
+    #[test]
+    fn success_and_permanent_failure_are_never_retried() {
+        let inner = MockTransport::new()
+            .on("ok.example", 200, "fine")
+            .on("missing.example", 404, "nope")
+            .on_error("bad.example", TransportError::Other("nope".into()));
+        let (sleep, delays) = recording_sleep();
+        let t = RetryingTransport::with_policy_and_sleep(inner, RetryPolicy::default(), sleep);
+
+        assert_eq!(t.get("https://ok.example").unwrap().status, 200);
+        assert_eq!(t.get("https://missing.example").unwrap().status, 404);
+        assert!(t.get("https://bad.example").is_err());
+        assert!(
+            delays.lock().unwrap().is_empty(),
+            "no backoff for a success or a permanent failure"
+        );
     }
 }

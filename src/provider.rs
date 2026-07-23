@@ -42,7 +42,7 @@ pub(crate) fn classify_status(
         429 => Some(Outcome::Failed {
             error: format!("rate limited by {provider_name} (429)"),
         }),
-        s if (500..600).contains(&s) => Some(Outcome::Failed {
+        s if crate::transport::is_transient_status(s) => Some(Outcome::Failed {
             error: format!("{provider_name} server error ({s})"),
         }),
         s => Some(Outcome::Failed {

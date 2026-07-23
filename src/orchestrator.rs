@@ -114,4 +114,72 @@ mod tests {
         assert_eq!(snap.metrics().count(), 0);
         assert!(matches!(snap.results[0].outcome, Outcome::Failed { .. }));
     }
+
+    /// A route for every citation Provider other than OpenAlex, so a
+    /// `RetryingTransport` composition test can isolate what happens to
+    /// OpenAlex's own Outcome without the others panicking on an unmatched URL.
+    fn transport_with_only_openalex_left_open(openalex: MockTransport) -> MockTransport {
+        openalex
+            .on("api.crossref.org/works/", 404, "")
+            .on("metrics-api.dimensions.ai/doi/", 404, "")
+            .on(
+                "ebi.ac.uk/europepmc/webservices/rest/search",
+                200,
+                r#"{"hitCount":0,"resultList":{"result":[]}}"#,
+            )
+    }
+
+    #[test]
+    fn a_429_then_200_composes_through_retry_and_provider_into_a_real_outcome_value() {
+        // Exercises issue #3 AC1 end-to-end: a 429 then a 200 must reach the
+        // orchestrator as an `Outcome::Values`, not just a 200 `HttpResponse`.
+        let body =
+            r#"{"cited_by_count": 10, "fwci": null, "citation_normalized_percentile": null}"#;
+        let mock = transport_with_only_openalex_left_open(
+            MockTransport::new()
+                .on_sequence("api.openalex.org/works/doi:", &[(429, ""), (200, body)]),
+        );
+        let transport = crate::transport::RetryingTransport::with_policy_and_sleep(
+            mock,
+            Default::default(),
+            |_| {},
+        );
+
+        let snap = run(&project(), &default_providers(), &transport);
+
+        assert!(!snap.has_failures());
+        let openalex = snap
+            .results
+            .iter()
+            .find(|r| r.provider == "openalex")
+            .unwrap();
+        assert!(matches!(openalex.outcome, Outcome::Values { .. }));
+    }
+
+    #[test]
+    fn persistent_429_composes_through_retry_and_provider_into_a_bounded_failed_outcome() {
+        // Exercises issue #3 AC2 end-to-end: retries must be bounded (never
+        // forever) and still resolve to a real `Outcome::Failed`.
+        let mock = transport_with_only_openalex_left_open(MockTransport::new().on(
+            "api.openalex.org/works/doi:",
+            429,
+            "",
+        ));
+        let policy = crate::transport::RetryPolicy {
+            max_retries: 2,
+            base_delay: std::time::Duration::from_millis(1),
+        };
+        let transport =
+            crate::transport::RetryingTransport::with_policy_and_sleep(mock, policy, |_| {});
+
+        let snap = run(&project(), &default_providers(), &transport);
+
+        assert!(snap.has_failures());
+        let openalex = snap
+            .results
+            .iter()
+            .find(|r| r.provider == "openalex")
+            .unwrap();
+        assert!(matches!(openalex.outcome, Outcome::Failed { .. }));
+    }
 }

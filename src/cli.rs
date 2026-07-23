@@ -11,7 +11,7 @@ use crate::model::{Identity, IdentityError, PackageId, Project, RepoId};
 use crate::orchestrator;
 use crate::providers::default_providers_with_topic;
 use crate::report::render_terminal;
-use crate::transport::UreqTransport;
+use crate::transport::{RetryingTransport, UreqTransport};
 
 /// Subcommands recognised as the first positional token. Anything else is
 /// treated as a bare identifier for `about`.
@@ -231,7 +231,7 @@ fn run_about(args: AboutArgs) -> i32 {
     }
 
     let project = Project::new(identities);
-    let transport = UreqTransport::new();
+    let transport = RetryingTransport::new(UreqTransport::new());
     let providers = default_providers_with_topic(args.topic.clone());
 
     let snapshot = orchestrator::run(&project, &providers, &transport);

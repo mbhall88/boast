@@ -7,6 +7,7 @@
 //! [`Snapshot`](model::Snapshot), and renders a [report](report).
 
 pub mod cli;
+pub mod diff;
 pub mod model;
 pub mod orchestrator;
 pub mod provider;

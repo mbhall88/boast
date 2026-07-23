@@ -8,7 +8,9 @@ use time::format_description::well_known::Rfc3339;
 use crate::model::{Category, MetricValue, Outcome, Snapshot, Window};
 use crate::rollup;
 
-const CATEGORY_ORDER: [Category; 4] = [
+/// Display order for Categories, shared with [`crate::diff`]'s renderer so
+/// both group Metrics identically.
+pub(crate) const CATEGORY_ORDER: [Category; 4] = [
     Category::Code,
     Category::Downloads,
     Category::Citations,
@@ -409,8 +411,10 @@ fn headline_downloads(snapshot: &Snapshot) -> Option<DownloadsHeadline> {
 /// Every distinct Provider-level notice (a `Metric.note` over
 /// [`INLINE_DETAIL_LIMIT`]) across the whole Snapshot, in first-seen order
 /// and de-duplicated — so a notice shared by several Identities (e.g. the
-/// same Dimensions licence text on every DOI) is shown once per run.
-fn provider_notices(snapshot: &Snapshot) -> Vec<String> {
+/// same Dimensions licence text on every DOI) is shown once per run. Shared
+/// with [`crate::diff`]'s renderer, which merges this across both Snapshots
+/// being diffed (ADR-0005: a notice must survive every Report format).
+pub(crate) fn provider_notices(snapshot: &Snapshot) -> Vec<String> {
     let mut notices = Vec::new();
     for m in snapshot.metrics() {
         if let Some(note) = &m.note {

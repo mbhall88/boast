@@ -1,5 +1,5 @@
-//! Command-line surface. Subcommands (`about`, `render`, and later `diff`/…),
-//! plus a bare-identifier shortcut so `boast 10.1234/x` means `boast about
+//! Command-line surface. Subcommands (`about`, `render`, `diff`), plus a
+//! bare-identifier shortcut so `boast 10.1234/x` means `boast about
 //! 10.1234/x`.
 
 use std::path::PathBuf;
@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use time::macros::format_description;
 
+use crate::diff;
 use crate::model::{Identity, IdentityError, PackageId, Project, RepoId, Snapshot};
 use crate::orchestrator;
 use crate::providers::default_providers_with_topic;
@@ -15,7 +16,7 @@ use crate::transport::{RetryingTransport, UreqTransport};
 
 /// Subcommands recognised as the first positional token. Anything else is
 /// treated as a bare identifier for `about`.
-const SUBCOMMANDS: &[&str] = &["about", "render", "help"];
+const SUBCOMMANDS: &[&str] = &["about", "render", "diff", "help"];
 
 #[derive(Debug, Parser)]
 #[command(
@@ -44,6 +45,21 @@ pub enum Command {
     /// Render a stored Snapshot as Markdown or prose. Never touches the
     /// network (ADR-0001) — offline and deterministic for a given Snapshot.
     Render(RenderArgs),
+
+    /// Compare two stored Snapshots and report the change in each shared
+    /// Metric. Never touches the network (ADR-0001).
+    Diff(DiffArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DiffArgs {
+    /// The earlier Snapshot JSON file.
+    #[arg(value_name = "OLD")]
+    pub old: PathBuf,
+
+    /// The later Snapshot JSON file.
+    #[arg(value_name = "NEW")]
+    pub new: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -146,6 +162,7 @@ pub fn main() -> i32 {
     match cli.command {
         Command::About(args) => run_about(args),
         Command::Render(args) => run_render(args),
+        Command::Diff(args) => run_diff(args),
     }
 }
 
@@ -279,27 +296,27 @@ fn run_about(args: AboutArgs) -> i32 {
     }
 }
 
+/// Read and parse a stored Snapshot JSON file. `Err` carries the CLI exit
+/// code to return immediately; the error itself is already logged.
+fn load_snapshot(path: &std::path::Path) -> Result<Snapshot, i32> {
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        tracing::error!("could not read {}: {e}", path.display());
+        2
+    })?;
+    serde_json::from_str(&content).map_err(|e| {
+        tracing::error!("could not parse {} as a Snapshot: {e}", path.display());
+        2
+    })
+}
+
 /// Read a stored Snapshot and print it in the requested format. Never
 /// touches the network — a pure read + render over already-fetched data
 /// (ADR-0001), so the exit code still reflects any `Failed` outcomes the
 /// Snapshot itself recorded, even though nothing was fetched this run.
 fn run_render(args: RenderArgs) -> i32 {
-    let content = match std::fs::read_to_string(&args.snapshot) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("could not read {}: {e}", args.snapshot.display());
-            return 2;
-        }
-    };
-    let snapshot: Snapshot = match serde_json::from_str(&content) {
+    let snapshot = match load_snapshot(&args.snapshot) {
         Ok(s) => s,
-        Err(e) => {
-            tracing::error!(
-                "could not parse {} as a Snapshot: {e}",
-                args.snapshot.display()
-            );
-            return 2;
-        }
+        Err(code) => return code,
     };
 
     match args.format {
@@ -311,6 +328,30 @@ fn run_render(args: RenderArgs) -> i32 {
     }
 
     if snapshot.has_failures() {
+        1
+    } else {
+        0
+    }
+}
+
+/// Diff two stored Snapshots and print the growth in each shared Metric.
+/// Never touches the network (ADR-0001). Exits non-zero if either Snapshot
+/// itself recorded a `Failed` outcome — the diff may be based on incomplete
+/// data, even though nothing was fetched this run.
+fn run_diff(args: DiffArgs) -> i32 {
+    let old = match load_snapshot(&args.old) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let new = match load_snapshot(&args.new) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+
+    let d = diff::compute(&old, &new);
+    print!("{}", diff::render(&old, &new, &d));
+
+    if old.has_failures() || new.has_failures() {
         1
     } else {
         0
@@ -473,6 +514,30 @@ mod tests {
         let err = Cli::try_parse_from(norm(&["boast", "render", "snap.json", "--format", "html"]))
             .unwrap_err();
         assert!(err.to_string().contains("markdown"));
+    }
+
+    #[test]
+    fn diff_is_a_real_subcommand_never_swallowed_into_an_implicit_about() {
+        assert_eq!(
+            norm(&["boast", "diff", "old.json", "new.json"]),
+            vec!["boast", "diff", "old.json", "new.json"]
+        );
+    }
+
+    #[test]
+    fn cli_parses_diff_with_two_positional_snapshots() {
+        let cli = Cli::try_parse_from(norm(&["boast", "diff", "old.json", "new.json"])).unwrap();
+        let Command::Diff(d) = cli.command else {
+            panic!("expected Diff")
+        };
+        assert_eq!(d.old, PathBuf::from("old.json"));
+        assert_eq!(d.new, PathBuf::from("new.json"));
+    }
+
+    #[test]
+    fn cli_diff_requires_both_snapshots() {
+        let err = Cli::try_parse_from(norm(&["boast", "diff", "old.json"])).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("new"));
     }
 
     #[test]

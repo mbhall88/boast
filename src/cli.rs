@@ -1,21 +1,21 @@
-//! Command-line surface. Subcommands (`about`, and later `render`/`diff`/…),
+//! Command-line surface. Subcommands (`about`, `render`, and later `diff`/…),
 //! plus a bare-identifier shortcut so `boast 10.1234/x` means `boast about
 //! 10.1234/x`.
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use time::macros::format_description;
 
-use crate::model::{Identity, IdentityError, PackageId, Project, RepoId};
+use crate::model::{Identity, IdentityError, PackageId, Project, RepoId, Snapshot};
 use crate::orchestrator;
 use crate::providers::default_providers_with_topic;
-use crate::report::render_terminal;
+use crate::report::{render_markdown, render_prose, render_terminal};
 use crate::transport::{RetryingTransport, UreqTransport};
 
 /// Subcommands recognised as the first positional token. Anything else is
 /// treated as a bare identifier for `about`.
-const SUBCOMMANDS: &[&str] = &["about", "help"];
+const SUBCOMMANDS: &[&str] = &["about", "render", "help"];
 
 #[derive(Debug, Parser)]
 #[command(
@@ -40,6 +40,29 @@ pub struct Cli {
 pub enum Command {
     /// Fetch metrics for a Project, write a Snapshot, and print a report.
     About(AboutArgs),
+
+    /// Render a stored Snapshot as Markdown or prose. Never touches the
+    /// network (ADR-0001) — offline and deterministic for a given Snapshot.
+    Render(RenderArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct RenderArgs {
+    /// Path to a Snapshot JSON file written by `boast about`.
+    #[arg(value_name = "SNAPSHOT")]
+    pub snapshot: PathBuf,
+
+    /// Output format.
+    #[arg(short = 'f', long = "format", value_enum, default_value_t = Format::Markdown)]
+    pub format: Format,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum Format {
+    /// Category-grouped Markdown Report — the primary saved artifact.
+    Markdown,
+    /// A single grant-ready sentence summarising the headline Metrics.
+    Prose,
 }
 
 #[derive(Debug, Args)]
@@ -122,6 +145,7 @@ pub fn main() -> i32 {
 
     match cli.command {
         Command::About(args) => run_about(args),
+        Command::Render(args) => run_render(args),
     }
 }
 
@@ -255,6 +279,44 @@ fn run_about(args: AboutArgs) -> i32 {
     }
 }
 
+/// Read a stored Snapshot and print it in the requested format. Never
+/// touches the network — a pure read + render over already-fetched data
+/// (ADR-0001), so the exit code still reflects any `Failed` outcomes the
+/// Snapshot itself recorded, even though nothing was fetched this run.
+fn run_render(args: RenderArgs) -> i32 {
+    let content = match std::fs::read_to_string(&args.snapshot) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("could not read {}: {e}", args.snapshot.display());
+            return 2;
+        }
+    };
+    let snapshot: Snapshot = match serde_json::from_str(&content) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!(
+                "could not parse {} as a Snapshot: {e}",
+                args.snapshot.display()
+            );
+            return 2;
+        }
+    };
+
+    match args.format {
+        // Markdown already ends each of its lines (and so the whole string)
+        // in a newline; prose is one bare sentence with no newline of its
+        // own, so it gets one here to end the line cleanly.
+        Format::Markdown => print!("{}", render_markdown(&snapshot)),
+        Format::Prose => println!("{}", render_prose(&snapshot)),
+    }
+
+    if snapshot.has_failures() {
+        1
+    } else {
+        0
+    }
+}
+
 /// Read a `--from-file` source: a path, or `-` for stdin.
 fn read_source(path: &std::path::Path) -> std::io::Result<String> {
     if path.as_os_str() == "-" {
@@ -366,15 +428,51 @@ mod tests {
     #[test]
     fn cli_parses_bare_and_explicit_forms_equivalently() {
         let bare = Cli::try_parse_from(norm(&["boast", "10.1/x"])).unwrap();
-        let Command::About(a) = bare.command;
+        let Command::About(a) = bare.command else {
+            panic!("expected About")
+        };
         assert_eq!(a.targets, vec!["10.1/x".to_string()]);
     }
 
     #[test]
     fn cli_parses_package_flag() {
         let cli = Cli::try_parse_from(norm(&["boast", "--package", "crates:boast"])).unwrap();
-        let Command::About(a) = cli.command;
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
         assert_eq!(a.packages, vec!["crates:boast".to_string()]);
+    }
+
+    #[test]
+    fn render_is_a_real_subcommand_never_swallowed_into_an_implicit_about() {
+        assert_eq!(
+            norm(&["boast", "render", "snap.json"]),
+            vec!["boast", "render", "snap.json"]
+        );
+    }
+
+    #[test]
+    fn cli_parses_render_with_default_and_explicit_format() {
+        let cli = Cli::try_parse_from(norm(&["boast", "render", "snap.json"])).unwrap();
+        let Command::Render(r) = cli.command else {
+            panic!("expected Render")
+        };
+        assert_eq!(r.snapshot, PathBuf::from("snap.json"));
+        assert!(matches!(r.format, Format::Markdown));
+
+        let cli = Cli::try_parse_from(norm(&["boast", "render", "snap.json", "--format", "prose"]))
+            .unwrap();
+        let Command::Render(r) = cli.command else {
+            panic!("expected Render")
+        };
+        assert!(matches!(r.format, Format::Prose));
+    }
+
+    #[test]
+    fn cli_rejects_an_unknown_render_format() {
+        let err = Cli::try_parse_from(norm(&["boast", "render", "snap.json", "--format", "html"]))
+            .unwrap_err();
+        assert!(err.to_string().contains("markdown"));
     }
 
     #[test]

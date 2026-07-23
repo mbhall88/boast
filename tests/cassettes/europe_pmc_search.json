@@ -1,0 +1,30 @@
+{
+  "version": "6.9",
+  "hitCount": 1,
+  "request": {
+    "queryString": "DOI:10.1371/journal.pbio.1002195",
+    "resultType": "lite",
+    "cursorMark": "*",
+    "pageSize": 25,
+    "sort": "",
+    "synonym": false
+  },
+  "resultList": {
+    "result": [
+      {
+        "id": "26151137",
+        "source": "MED",
+        "pmid": "26151137",
+        "pmcid": "PMC4494865",
+        "doi": "10.1371/journal.pbio.1002195",
+        "title": "Big Data: Astronomical or Genomical?",
+        "authorString": "Stephens ZD, Lee SY, Faghri F, Campbell RH, Zhai C, Efron MJ, Iyer R, Schatz MC, Sinha S, Robinson GE.",
+        "journalTitle": "PLOS Biology",
+        "pubYear": "2015",
+        "citedByCount": 581,
+        "isOpenAccess": "Y",
+        "inEPMC": "Y"
+      }
+    ]
+  }
+}

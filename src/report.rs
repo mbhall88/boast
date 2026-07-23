@@ -14,6 +14,13 @@ const CATEGORY_ORDER: [Category; 4] = [
     Category::Attention,
 ];
 
+/// A `Metric.note` at or under this length is a short interpretive gloss
+/// (e.g. "field-weighted citation impact; 1.0 = world average") and stays
+/// inline on its row. Past it, a note is treated as a Provider-level notice
+/// (e.g. a licence/terms notice) and promoted to the once-per-run footer
+/// instead — see ADR-0005 for why it isn't logged to stderr instead.
+const INLINE_DETAIL_LIMIT: usize = 80;
+
 struct Row {
     name: String,
     value: String,
@@ -59,18 +66,20 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
             let w_provider = rows.iter().map(|r| r.provider.len()).max().unwrap_or(0);
 
             for r in rows {
-                let mut line = format!(
+                let line = format!(
                     "  {name:<w_name$}  {value:>w_value$}  {window:<w_window$}  {provider:<w_provider$}",
                     name = r.name,
                     value = r.value,
                     window = r.window,
                     provider = r.provider,
                 );
-                if !r.detail.is_empty() {
-                    line.push_str(&format!("  {}", r.detail));
-                }
-                // Trim trailing whitespace left by empty columns.
+                // Trim trailing whitespace left by empty columns. A notice
+                // over the inline limit is skipped here — it appears once in
+                // the footer below, not repeated on every row that carries it.
                 out.push_str(line.trim_end());
+                if !r.detail.is_empty() && r.detail.len() <= INLINE_DETAIL_LIMIT {
+                    out.push_str(&format!("  {}", r.detail));
+                }
                 out.push('\n');
             }
         }
@@ -100,6 +109,14 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
         }
     }
 
+    let notices = provider_notices(snapshot);
+    if !notices.is_empty() {
+        out.push_str("\n── Notices ──\n");
+        for notice in notices {
+            out.push_str(&format!("  {notice}\n"));
+        }
+    }
+
     if snapshot.has_failures() {
         out.push_str(
             "\n⚠ partial snapshot: some metrics failed to fetch (see FAILED rows); exit code 1.\n",
@@ -107,6 +124,22 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
     }
 
     out
+}
+
+/// Every distinct Provider-level notice (a `Metric.note` over
+/// [`INLINE_DETAIL_LIMIT`]) across the whole Snapshot, in first-seen order
+/// and de-duplicated — so a notice shared by several Identities (e.g. the
+/// same Dimensions licence text on every DOI) is shown once per run.
+fn provider_notices(snapshot: &Snapshot) -> Vec<String> {
+    let mut notices = Vec::new();
+    for m in snapshot.metrics() {
+        if let Some(note) = &m.note {
+            if note.len() > INLINE_DETAIL_LIMIT && !notices.contains(note) {
+                notices.push(note.clone());
+            }
+        }
+    }
+    notices
 }
 
 /// Build the display rows for one identity and Category from the Snapshot.
@@ -176,6 +209,80 @@ mod tests {
             source: "https://api.openalex.org/works/doi:10.1/x".into(),
             note: None,
         }
+    }
+
+    #[test]
+    fn long_detail_moves_to_the_notices_footer_short_detail_stays_inline() {
+        let long_note = "x".repeat(120);
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "dimensions".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![
+                    Metric {
+                        note: Some(long_note.clone()),
+                        provider: "dimensions".into(),
+                        ..metric("citations", MetricValue::Count(5))
+                    },
+                    Metric {
+                        note: Some("short".into()),
+                        provider: "dimensions".into(),
+                        ..metric("fcr", MetricValue::Real(1.0))
+                    },
+                ],
+                metadata: None,
+            },
+        }]);
+        let out = render_terminal(&snap);
+        assert!(out.contains("── Notices ──"));
+        // The long note lives in the footer, not appended to its row.
+        let citations_line = out.lines().find(|l| l.contains("citations")).unwrap();
+        assert!(!citations_line.contains(&long_note));
+        let footer_line = out.lines().find(|l| l.contains(&long_note)).unwrap();
+        assert!(!footer_line.contains("citations"));
+        // The short note still shares a line with its row.
+        let short_line = out.lines().find(|l| l.contains("short")).unwrap();
+        assert!(short_line.contains("fcr"));
+    }
+
+    #[test]
+    fn identical_notices_across_identities_are_shown_once() {
+        let notice = "x".repeat(120);
+        let dimensions_metric = |identity: &str| Metric {
+            note: Some(notice.clone()),
+            provider: "dimensions".into(),
+            identity: identity.into(),
+            ..metric("citations", MetricValue::Count(5))
+        };
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "dimensions".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![dimensions_metric("doi:10.1/x")],
+                    metadata: None,
+                },
+            },
+            FetchResult {
+                provider: "dimensions".into(),
+                identity: "doi:10.2/y".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![dimensions_metric("doi:10.2/y")],
+                    metadata: None,
+                },
+            },
+        ]);
+        snap.identities = vec!["doi:10.1/x".into(), "doi:10.2/y".into()];
+
+        let out = render_terminal(&snap);
+        assert_eq!(
+            out.matches(notice.as_str()).count(),
+            1,
+            "a notice shared by two Identities must appear once per run, not once per Identity"
+        );
     }
 
     #[test]

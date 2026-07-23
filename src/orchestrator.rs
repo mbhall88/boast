@@ -69,28 +69,35 @@ mod tests {
     #[test]
     fn assembles_snapshot_with_metrics_and_no_failures() {
         let body = r#"{"cited_by_count": 10, "fwci": 2.0, "citation_normalized_percentile": null}"#;
-        // OpenAlex returns metrics; Crossref has no record for this DOI.
+        // OpenAlex and Dimensions return metrics; Crossref has no record for this DOI.
         let t = MockTransport::new()
             .on("api.openalex.org/works/doi:", 200, body)
-            .on("api.crossref.org/works/", 404, "");
+            .on("api.crossref.org/works/", 404, "")
+            .on(
+                "metrics-api.dimensions.ai/doi/",
+                200,
+                r#"{"times_cited": 5, "field_citation_ratio": null, "relative_citation_ratio": null, "license": null}"#,
+            );
 
         let snap = run(&project(), &default_providers(), &t);
 
         assert_eq!(snap.schema_version, Snapshot::SCHEMA_VERSION);
         assert_eq!(snap.identities, vec!["doi:10.1/x".to_string()]);
         assert!(!snap.has_failures());
-        assert_eq!(snap.metrics().count(), 2);
+        assert_eq!(snap.metrics().count(), 3);
     }
 
     #[test]
     fn records_failure_without_aborting() {
-        // OpenAlex fails; Crossref is fine — one dead Provider must not block others.
+        // OpenAlex fails; Crossref and Dimensions are fine — one dead Provider
+        // must not block others.
         let t = MockTransport::new()
             .on_error(
                 "api.openalex.org/works/doi:",
                 TransportError::ConnectionFailed,
             )
-            .on("api.crossref.org/works/", 404, "");
+            .on("api.crossref.org/works/", 404, "")
+            .on("metrics-api.dimensions.ai/doi/", 404, "");
         let snap = run(&project(), &default_providers(), &t);
 
         assert!(snap.has_failures());

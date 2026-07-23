@@ -1,10 +1,11 @@
-//! Renders a Snapshot as a human-readable terminal table, grouped by Category.
-//! A Report is always derived from a Snapshot and never fetches (ADR-0001).
-//! NotApplicable shows as N/A and Failed is flagged — never a misleading 0.
+//! Renders a Snapshot into a terminal table, a Markdown Report, or a
+//! grant-ready prose sentence. A Report is always derived from a Snapshot and
+//! never fetches (ADR-0001). NotApplicable shows as N/A and Failed is
+//! flagged — never a misleading 0.
 
 use time::format_description::well_known::Rfc3339;
 
-use crate::model::{Category, Outcome, Snapshot};
+use crate::model::{Category, MetricValue, Outcome, Snapshot, Window};
 use crate::rollup;
 
 const CATEGORY_ORDER: [Category; 4] = [
@@ -27,6 +28,10 @@ struct Row {
     window: String,
     provider: String,
     detail: String,
+    /// The Metric's source URL, empty for a `NotApplicable`/`Failed` row
+    /// (there's nothing to attribute). Only Markdown links it — a terminal
+    /// table has nowhere useful to put a raw URL.
+    source: String,
 }
 
 /// Render the Snapshot as a terminal-friendly string, grouped by identity then
@@ -126,6 +131,281 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
     out
 }
 
+/// Render the Snapshot as a grant-friendly Markdown Report, grouped by
+/// identity then Category — the primary saved artifact for pasting into a
+/// document or README (never fetches; see ADR-0001).
+pub fn render_markdown(snapshot: &Snapshot) -> String {
+    let mut out = String::new();
+
+    let created = snapshot
+        .created_at
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| snapshot.created_at.to_string());
+    out.push_str(&format!(
+        "# boast Report\n\n_boast {} — as of {created}_\n",
+        snapshot.tool_version
+    ));
+
+    for identity in &snapshot.identities {
+        out.push_str(&format!("\n## {identity}\n"));
+
+        for md in snapshot.descriptions().filter(|d| &d.identity == identity) {
+            let summary = md.summary();
+            if !summary.is_empty() {
+                out.push_str(&format!("\n{summary}\n"));
+            }
+        }
+
+        for category in CATEGORY_ORDER {
+            let rows = rows_for(snapshot, identity, category);
+            if rows.is_empty() {
+                continue;
+            }
+            out.push_str(&format!("\n### {}\n\n", category.label()));
+            out.push_str("| Metric | Value | Window | Provider | Detail |\n");
+            out.push_str("| --- | --- | --- | --- | --- |\n");
+
+            for r in rows {
+                let detail = if !r.detail.is_empty() && r.detail.len() <= INLINE_DETAIL_LIMIT {
+                    escape_md_cell(&r.detail)
+                } else {
+                    String::new()
+                };
+                // Link the Provider to its source URL when there is one, so
+                // the number is attributed to a clickable source, not just a
+                // name — Markdown's advantage over the terminal table.
+                let provider = if r.source.is_empty() {
+                    escape_md_cell(&r.provider)
+                } else {
+                    format!("[{}]({})", escape_md_cell(&r.provider), r.source)
+                };
+                out.push_str(&format!(
+                    "| {} | {} | {} | {} | {} |\n",
+                    escape_md_cell(&r.name),
+                    escape_md_cell(&r.value),
+                    escape_md_cell(&r.window),
+                    provider,
+                    detail,
+                ));
+            }
+        }
+    }
+
+    let downloads = snapshot
+        .metrics()
+        .filter(|m| m.category == Category::Downloads);
+    let rollups = rollup::compute(downloads);
+    if !rollups.is_empty() {
+        out.push_str("\n## Downloads Rollup (derived — see channels above)\n\n");
+        for r in &rollups {
+            let breakdown: Vec<String> = r
+                .channels
+                .iter()
+                .map(|c| format!("{} ({})", c.identity, c.value))
+                .collect();
+            out.push_str(&format!(
+                "- **{}** {} = {}\n",
+                r.total,
+                r.window.describe(),
+                breakdown.join(" + "),
+            ));
+        }
+    }
+
+    let notices = provider_notices(snapshot);
+    if !notices.is_empty() {
+        out.push_str("\n## Notices\n\n");
+        for notice in notices {
+            out.push_str(&format!("- {notice}\n"));
+        }
+    }
+
+    if snapshot.has_failures() {
+        out.push_str(
+            "\n> ⚠ **partial snapshot**: some metrics failed to fetch (see FAILED rows); exit code 1.\n",
+        );
+    }
+
+    out
+}
+
+/// Escape a value bound for a Markdown table cell: a literal `|` would split
+/// the row into an extra column, and an embedded newline would break out of
+/// the row entirely.
+fn escape_md_cell(s: &str) -> String {
+    s.replace('|', "\\|").replace('\n', " ")
+}
+
+/// Render a single grant-ready sentence summarising the Snapshot's headline
+/// Metrics (never fetches; see ADR-0001). Only Metrics that actually resolved
+/// to a Value are named — an absent or failed Metric is silently omitted
+/// rather than implied as 0 (ADR-0002); a partial Snapshot is flagged in a
+/// trailing caveat instead of being folded into the headline numbers. If the
+/// headline citation count carries a Provider-level notice (e.g. Dimensions'
+/// licence text), that notice is appended too — quoting a keyed/terms-gated
+/// number without its terms is exactly what ADR-0005 exists to prevent, and
+/// prose is as much a paste target as the Markdown Report.
+pub fn render_prose(snapshot: &Snapshot) -> String {
+    let date_fmt = time::macros::format_description!("[year]-[month]-[day]");
+    let date = snapshot
+        .created_at
+        .format(&date_fmt)
+        .unwrap_or_else(|_| snapshot.created_at.to_string());
+
+    let mut clauses = Vec::new();
+    let mut citation_notice = None;
+    if let Some((count, provider, notice)) = headline_citations(snapshot) {
+        clauses.push(format!("has been cited {count} times ({provider})"));
+        citation_notice = notice;
+    }
+    if let Some(stars) = headline_stars(snapshot) {
+        clauses.push(format!("has {stars} GitHub stars"));
+    }
+    if let Some(headline) = headline_downloads(snapshot) {
+        clauses.push(match headline {
+            DownloadsHeadline::Rollup {
+                total,
+                channels,
+                window,
+            } => format!(
+                "has been downloaded {total} times ({}) across {channels} channels",
+                window.describe(),
+            ),
+            DownloadsHeadline::Single {
+                total,
+                provider,
+                window,
+            } => format!(
+                "has been downloaded {total} times ({provider}, {})",
+                window.describe(),
+            ),
+        });
+    }
+
+    let mut sentence = if clauses.is_empty() {
+        format!("As of {date}, no headline metrics were available for this Snapshot.")
+    } else {
+        format!("As of {date}, this project {}.", join_with_and(&clauses))
+    };
+
+    if let Some(notice) = citation_notice {
+        sentence.push(' ');
+        sentence.push_str(&notice);
+    }
+
+    if snapshot.has_failures() {
+        sentence.push_str(" (Note: some metrics failed to fetch and are not reflected here.)");
+    }
+
+    sentence
+}
+
+/// Join clauses into an English list with an Oxford comma: `"a"`, `"a and
+/// b"`, `"a, b, and c"`.
+fn join_with_and(clauses: &[String]) -> String {
+    match clauses {
+        [] => String::new(),
+        [only] => only.clone(),
+        [a, b] => format!("{a} and {b}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
+/// The largest "citations" Metric across the whole Snapshot, with the
+/// Provider it came from — the "cite the higher one honestly and attribute
+/// it" headline number (see user story 27) — plus its Provider-level notice,
+/// if it carries one (over [`INLINE_DETAIL_LIMIT`], e.g. Dimensions' licence
+/// text), so a caller can't headline a number while silently dropping the
+/// terms attached to it (ADR-0005).
+///
+/// Chosen across the *whole* Snapshot, not per Identity: correct for the
+/// common case of one Project naming one paper. A Snapshot spanning several
+/// distinct papers would blend their counts into one unattributed clause —
+/// an accepted v1 simplification matching prose's "a single sentence" brief,
+/// not a per-Identity breakdown.
+fn headline_citations(snapshot: &Snapshot) -> Option<(u64, String, Option<String>)> {
+    snapshot
+        .metrics()
+        .filter(|m| m.category == Category::Citations && m.name == "citations")
+        .filter_map(|m| match m.value {
+            MetricValue::Count(c) => {
+                let notice = m
+                    .note
+                    .as_ref()
+                    .filter(|n| n.len() > INLINE_DETAIL_LIMIT)
+                    .cloned();
+                Some((c, m.provider.clone(), notice))
+            }
+            _ => None,
+        })
+        .max_by_key(|(c, _, _)| *c)
+}
+
+/// The largest "stars" Metric across the whole Snapshot. Whole-Snapshot, not
+/// per Identity — see [`headline_citations`]'s doc comment for why.
+fn headline_stars(snapshot: &Snapshot) -> Option<u64> {
+    snapshot
+        .metrics()
+        .filter(|m| m.category == Category::Code && m.name == "stars")
+        .filter_map(|m| match m.value {
+            MetricValue::Count(c) => Some(c),
+            _ => None,
+        })
+        .max()
+}
+
+enum DownloadsHeadline {
+    Rollup {
+        total: u64,
+        channels: usize,
+        window: Window,
+    },
+    Single {
+        total: u64,
+        provider: String,
+        window: Window,
+    },
+}
+
+/// The headline download figure: the largest labelled Rollup if two or more
+/// channels share a Window, otherwise the single largest raw channel — so a
+/// Project with only one download channel still gets a headline number.
+///
+/// When Rollups exist in more than one Window (e.g. an all-time total and a
+/// separate 30-day total), the one with the larger raw total wins — usually
+/// the cumulative figure, simply because it's the bigger number. This never
+/// misleads on its own: the rendered clause always states which Window the
+/// number covers (`window.describe()`), so "biggest wins" is a deliberate,
+/// labelled tie-break rather than a claim that it's the most representative.
+fn headline_downloads(snapshot: &Snapshot) -> Option<DownloadsHeadline> {
+    let downloads: Vec<_> = snapshot
+        .metrics()
+        .filter(|m| m.category == Category::Downloads)
+        .collect();
+
+    let rollups = rollup::compute(downloads.iter().copied());
+    if let Some(best) = rollups.into_iter().max_by_key(|r| r.total) {
+        return Some(DownloadsHeadline::Rollup {
+            total: best.total,
+            channels: best.channels.len(),
+            window: best.window,
+        });
+    }
+
+    downloads
+        .into_iter()
+        .filter_map(|m| match m.value {
+            MetricValue::Count(c) => Some((c, m.provider.clone(), m.window.clone())),
+            _ => None,
+        })
+        .max_by_key(|(c, _, _)| *c)
+        .map(|(total, provider, window)| DownloadsHeadline::Single {
+            total,
+            provider,
+            window,
+        })
+}
+
 /// Every distinct Provider-level notice (a `Metric.note` over
 /// [`INLINE_DETAIL_LIMIT`]) across the whole Snapshot, in first-seen order
 /// and de-duplicated — so a notice shared by several Identities (e.g. the
@@ -158,6 +438,7 @@ fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row>
                         window: m.window.describe(),
                         provider: m.provider.clone(),
                         detail: m.note.clone().unwrap_or_default(),
+                        source: m.source.clone(),
                     });
                 }
             }
@@ -167,6 +448,7 @@ fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row>
                 window: String::new(),
                 provider: String::new(),
                 detail: note.clone(),
+                source: String::new(),
             }),
             Outcome::Failed { error } => rows.push(Row {
                 name: result.provider.clone(),
@@ -174,6 +456,7 @@ fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row>
                 window: String::new(),
                 provider: String::new(),
                 detail: error.clone(),
+                source: String::new(),
             }),
         }
     }
@@ -475,5 +758,290 @@ mod tests {
         assert_eq!(out.matches("Downloads Rollup").count(), 1);
         assert!(out.contains("150 all-time"));
         assert!(out.contains("10 last 30 days"));
+    }
+
+    // -- render_markdown --------------------------------------------------
+
+    #[test]
+    fn render_markdown_groups_values_under_a_category_table() {
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "openalex".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![metric("citations", MetricValue::Count(1421))],
+                metadata: None,
+            },
+        }]);
+        let out = render_markdown(&snap);
+        assert!(out.contains("### Citations"));
+        assert!(out.contains("| Metric | Value | Window | Provider | Detail |"));
+        assert!(out.contains("| citations | 1421 | all-time |"));
+        assert!(!out.contains("partial snapshot"));
+    }
+
+    #[test]
+    fn render_markdown_links_the_provider_to_its_source_url() {
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "openalex".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![metric("citations", MetricValue::Count(1421))],
+                metadata: None,
+            },
+        }]);
+        let out = render_markdown(&snap);
+        assert!(out.contains("[openalex](https://api.openalex.org/works/doi:10.1/x)"));
+    }
+
+    #[test]
+    fn render_markdown_na_and_failed_rows_have_no_source_to_link() {
+        let mut snap = snapshot_with(vec![FetchResult {
+            provider: "openalex".into(),
+            identity: "doi:10.2/y".into(),
+            category: Category::Citations,
+            outcome: Outcome::NotApplicable {
+                note: "not found in OpenAlex".into(),
+            },
+        }]);
+        snap.identities = vec!["doi:10.2/y".into()];
+        let out = render_markdown(&snap);
+        assert!(!out.contains("]("));
+    }
+
+    #[test]
+    fn render_markdown_shows_na_and_failed_rows_never_zero() {
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "openalex".into(),
+                identity: "doi:10.2/y".into(),
+                category: Category::Citations,
+                outcome: Outcome::NotApplicable {
+                    note: "not found in OpenAlex".into(),
+                },
+            },
+            FetchResult {
+                provider: "openalex".into(),
+                identity: "doi:10.3/z".into(),
+                category: Category::Citations,
+                outcome: Outcome::Failed {
+                    error: "rate limited (429)".into(),
+                },
+            },
+        ]);
+        snap.identities = vec!["doi:10.2/y".into(), "doi:10.3/z".into()];
+        let out = render_markdown(&snap);
+        assert!(out.contains("N/A"));
+        assert!(out.contains("FAILED"));
+        assert!(!out.contains("| 0 |"));
+        assert!(out.contains("partial snapshot"));
+    }
+
+    #[test]
+    fn render_markdown_includes_rollup_and_deduplicated_notices() {
+        let notice = "x".repeat(120);
+        let mut snap = snapshot_with(vec![
+            downloads_result("crates.io", "crates:boast", 100, Window::Cumulative),
+            downloads_result("bioconda", "conda:bioconda/boast", 50, Window::Cumulative),
+            FetchResult {
+                provider: "dimensions".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        note: Some(notice.clone()),
+                        provider: "dimensions".into(),
+                        ..metric("citations", MetricValue::Count(5))
+                    }],
+                    metadata: None,
+                },
+            },
+        ]);
+        snap.identities = vec![
+            "crates:boast".into(),
+            "conda:bioconda/boast".into(),
+            "doi:10.1/x".into(),
+        ];
+        let out = render_markdown(&snap);
+        assert!(out.contains("## Downloads Rollup"));
+        assert!(out.contains("150"));
+        assert!(out.contains("## Notices"));
+        assert_eq!(out.matches(notice.as_str()).count(), 1);
+    }
+
+    #[test]
+    fn render_markdown_escapes_pipe_and_newline_in_a_table_cell() {
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "example".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![Metric {
+                    note: Some("a | pipe\nand a newline".into()),
+                    provider: "example".into(),
+                    ..metric("citations", MetricValue::Count(1))
+                }],
+                metadata: None,
+            },
+        }]);
+        let out = render_markdown(&snap);
+        assert!(out.contains("a \\| pipe and a newline"));
+        // The stray pipe must not have split the table into an extra column.
+        assert!(!out.contains("| pipe\nand"));
+    }
+
+    // -- render_prose -------------------------------------------------------
+
+    #[test]
+    fn render_prose_picks_the_highest_citation_count_and_attributes_it() {
+        let snap = snapshot_with(vec![
+            FetchResult {
+                provider: "openalex".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![metric("citations", MetricValue::Count(1421))],
+                    metadata: None,
+                },
+            },
+            FetchResult {
+                provider: "crossref".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        provider: "crossref".into(),
+                        ..metric("citations", MetricValue::Count(900))
+                    }],
+                    metadata: None,
+                },
+            },
+        ]);
+        let out = render_prose(&snap);
+        assert!(out.contains("1421"));
+        assert!(out.contains("openalex"));
+        assert!(!out.contains("900"));
+    }
+
+    #[test]
+    fn render_prose_includes_stars_and_a_downloads_rollup() {
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "github".into(),
+                identity: "github:o/n".into(),
+                category: Category::Code,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        category: Category::Code,
+                        provider: "github".into(),
+                        identity: "github:o/n".into(),
+                        ..metric("stars", MetricValue::Count(342))
+                    }],
+                    metadata: None,
+                },
+            },
+            downloads_result("crates.io", "crates:boast", 100, Window::Cumulative),
+            downloads_result("bioconda", "conda:bioconda/boast", 50, Window::Cumulative),
+        ]);
+        snap.identities = vec![
+            "github:o/n".into(),
+            "crates:boast".into(),
+            "conda:bioconda/boast".into(),
+        ];
+        let out = render_prose(&snap);
+        assert!(out.contains("342"));
+        assert!(out.contains("150"));
+        assert!(out.contains("2 channels"));
+        assert!(out.ends_with('.'));
+    }
+
+    #[test]
+    fn render_prose_falls_back_to_a_single_channel_when_theres_no_rollup() {
+        let snap = snapshot_with(vec![downloads_result(
+            "crates.io",
+            "crates:boast",
+            100,
+            Window::Cumulative,
+        )]);
+        let out = render_prose(&snap);
+        assert!(out.contains("100"));
+        assert!(out.contains("crates.io"));
+    }
+
+    #[test]
+    fn render_prose_says_no_headline_metrics_for_an_empty_snapshot() {
+        let out = render_prose(&snapshot_with(vec![]));
+        assert!(out.contains("no headline metrics"));
+        assert!(!out.contains(" 0 "));
+    }
+
+    #[test]
+    fn render_prose_flags_a_partial_snapshot_without_faking_a_number() {
+        let snap = snapshot_with(vec![
+            FetchResult {
+                provider: "openalex".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![metric("citations", MetricValue::Count(1421))],
+                    metadata: None,
+                },
+            },
+            FetchResult {
+                provider: "github".into(),
+                identity: "github:o/n".into(),
+                category: Category::Code,
+                outcome: Outcome::Failed {
+                    error: "rate limited (429)".into(),
+                },
+            },
+        ]);
+        let out = render_prose(&snap);
+        assert!(out.contains("1421"));
+        assert!(out.to_lowercase().contains("some metrics failed"));
+    }
+
+    #[test]
+    fn render_prose_carries_a_providers_notice_when_the_headline_metric_needs_one() {
+        // ADR-0005: a keyed/terms-gated number must never be quoted without
+        // its terms, even in the one-sentence prose format.
+        let notice = "This data is subject to terms; see https://example.com/terms.".repeat(2);
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "dimensions".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![Metric {
+                    note: Some(notice.clone()),
+                    provider: "dimensions".into(),
+                    ..metric("citations", MetricValue::Count(1421))
+                }],
+                metadata: None,
+            },
+        }]);
+        let out = render_prose(&snap);
+        assert!(out.contains("1421"));
+        assert!(out.contains(&notice));
+    }
+
+    #[test]
+    fn render_prose_omits_a_short_interpretive_note_never_treats_it_as_a_notice() {
+        // A short gloss (under the notice threshold) is not a Provider
+        // licence/terms notice and must not be tacked onto the sentence.
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "openalex".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![Metric {
+                    note: Some("short gloss".into()),
+                    ..metric("citations", MetricValue::Count(1421))
+                }],
+                metadata: None,
+            },
+        }]);
+        let out = render_prose(&snap);
+        assert!(!out.contains("short gloss"));
     }
 }

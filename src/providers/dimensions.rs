@@ -1,7 +1,7 @@
 //! Dimensions badge Provider: citation count, Field Citation Ratio (FCR), and
 //! Relative Citation Ratio (RCR) from the free, keyless Dimensions Metrics
 //! API. The API's own licence/terms notice is recorded on the citations
-//! Metric and surfaced in Reports rather than hidden (ADR-0003).
+//! Metric and surfaced in Reports rather than hidden (ADR-0003, ADR-0005).
 
 use serde::Deserialize;
 use time::OffsetDateTime;

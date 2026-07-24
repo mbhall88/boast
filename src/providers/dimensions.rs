@@ -1,7 +1,8 @@
-//! Dimensions badge Provider: citation count, Field Citation Ratio (FCR), and
-//! Relative Citation Ratio (RCR) from the free, keyless Dimensions Metrics
-//! API. The API's own licence/terms notice is recorded on the citations
-//! Metric and surfaced in Reports rather than hidden (ADR-0003, ADR-0005).
+//! Dimensions badge Provider: citation count, recent (last-two-calendar-year)
+//! citations, Field Citation Ratio (FCR), and Relative Citation Ratio (RCR)
+//! from the free, keyless Dimensions Metrics API. The API's own licence/terms
+//! notice is recorded on the citations Metric and surfaced in Reports rather
+//! than hidden (ADR-0003, ADR-0005).
 
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -17,6 +18,7 @@ pub struct Dimensions;
 #[derive(Debug, Deserialize)]
 struct DimensionsMetrics {
     times_cited: Option<u64>,
+    recent_citations: Option<u64>,
     field_citation_ratio: Option<f64>,
     relative_citation_ratio: Option<f64>,
     license: Option<String>,
@@ -56,6 +58,22 @@ impl Dimensions {
                 as_of,
                 source: url.into(),
                 note: parsed.license.clone(),
+            });
+        }
+
+        if let Some(recent) = parsed.recent_citations {
+            metrics.push(Metric {
+                name: "recent_citations".into(),
+                category: Category::Citations,
+                value: MetricValue::Count(recent),
+                window: Window::Periodic {
+                    label: "last two calendar years".into(),
+                },
+                provider: "dimensions".into(),
+                identity: canonical.into(),
+                as_of,
+                source: url.into(),
+                note: Some("resets each 1 January; not a rolling 24-month window".into()),
             });
         }
 
@@ -156,7 +174,7 @@ mod tests {
     const LICENSE_NOTICE: &str = "This data has been sourced via the Dimensions Metrics API, use of which is subject to the terms at https://dimensions.ai/policies/terms/metrics/. Any use by an unregistered organization is not authorized. Please contact info@dimensions.ai for further information.";
 
     #[test]
-    fn parses_citations_fcr_and_rcr_from_cassette() {
+    fn parses_citations_recent_citations_fcr_and_rcr_from_cassette() {
         let cassette = include_str!("../../tests/cassettes/dimensions_metrics.json");
         let t = MockTransport::new().on("metrics-api.dimensions.ai/doi/", 200, cassette);
 
@@ -165,13 +183,26 @@ mod tests {
             other => panic!("expected Values, got {other:?}"),
         };
 
-        assert_eq!(metrics.len(), 3);
+        assert_eq!(metrics.len(), 4);
 
         let cites = metrics.iter().find(|m| m.name == "citations").unwrap();
         assert_eq!(cites.value, MetricValue::Count(1285));
         assert_eq!(cites.provider, "dimensions");
         assert_eq!(cites.category, Category::Citations);
         assert_eq!(cites.window, Window::Cumulative);
+
+        let recent = metrics
+            .iter()
+            .find(|m| m.name == "recent_citations")
+            .unwrap();
+        assert_eq!(recent.value, MetricValue::Count(161));
+        assert_eq!(recent.category, Category::Citations);
+        assert_eq!(
+            recent.window,
+            Window::Periodic {
+                label: "last two calendar years".into()
+            }
+        );
 
         let fcr = metrics.iter().find(|m| m.name == "fcr").unwrap();
         assert_eq!(fcr.value, MetricValue::Real(116.66));
@@ -213,10 +244,27 @@ mod tests {
             Outcome::Values { metrics, .. } => metrics,
             other => panic!("expected Values, got {other:?}"),
         };
-        assert_eq!(metrics.len(), 1);
-        assert_eq!(metrics[0].name, "citations");
-        assert_eq!(metrics[0].value, MetricValue::Count(964));
-        assert_eq!(metrics[0].note.as_deref(), Some("terms apply"));
+        assert_eq!(metrics.len(), 2);
+        let cites = metrics.iter().find(|m| m.name == "citations").unwrap();
+        assert_eq!(cites.value, MetricValue::Count(964));
+        assert_eq!(cites.note.as_deref(), Some("terms apply"));
+        let recent = metrics
+            .iter()
+            .find(|m| m.name == "recent_citations")
+            .unwrap();
+        assert_eq!(recent.value, MetricValue::Count(964));
+    }
+
+    #[test]
+    fn omits_recent_citations_when_absent_never_zero() {
+        let body = r#"{"doi":"10.1/x","times_cited":50,"relative_citation_ratio":1.2,"field_citation_ratio":2.3,"license":"terms apply"}"#;
+        let t = MockTransport::new().on("metrics-api.dimensions.ai/doi/", 200, body);
+
+        let metrics = match Dimensions.fetch(&doi(), &t) {
+            Outcome::Values { metrics, .. } => metrics,
+            other => panic!("expected Values, got {other:?}"),
+        };
+        assert!(!metrics.iter().any(|m| m.name == "recent_citations"));
     }
 
     #[test]

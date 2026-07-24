@@ -48,7 +48,7 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 
 use crate::model::{Category, Identity, Metric, MetricValue, Outcome, PaperId, Window};
-use crate::provider::{classify_status, Provider};
+use crate::provider::{classify_status, KeyRequirement, Provider};
 use crate::transport::Transport;
 
 const API_BASE: &str = "https://api.altmetric.com/v1/fetch";
@@ -214,6 +214,12 @@ impl Provider for Altmetric {
         Self::endpoint(identity).is_some()
     }
 
+    fn key_requirement(&self) -> KeyRequirement {
+        KeyRequirement::Required {
+            env_var: "ALTMETRIC_KEY",
+        }
+    }
+
     fn fetch(&self, identity: &Identity, transport: &dyn Transport) -> Outcome {
         let (kind, id) = match Self::endpoint(identity) {
             Some(e) => e,
@@ -274,6 +280,22 @@ mod tests {
 
     fn keyless() -> Altmetric {
         Altmetric { key: None }
+    }
+
+    #[test]
+    fn declares_altmetric_key_as_required_regardless_of_whether_one_is_set() {
+        assert_eq!(
+            keyless().key_requirement(),
+            KeyRequirement::Required {
+                env_var: "ALTMETRIC_KEY"
+            }
+        );
+        assert_eq!(
+            keyed().key_requirement(),
+            KeyRequirement::Required {
+                env_var: "ALTMETRIC_KEY"
+            }
+        );
     }
 
     #[test]

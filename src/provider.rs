@@ -5,6 +5,22 @@
 use crate::model::{Category, Identity, Outcome};
 use crate::transport::Transport;
 
+/// A Provider's relationship to an API key or token — generic across every
+/// Provider so `boast providers` (see [`crate::providers::render_providers`])
+/// can describe the whole registry without knowing about individual
+/// Providers' own env vars.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyRequirement {
+    /// Never needs a key.
+    None,
+    /// Fetches without one; the named environment variable, if set, raises
+    /// rate limits or unlocks more data (e.g. GitHub's `GITHUB_TOKEN`).
+    Optional { env_var: &'static str },
+    /// Produces no data at all unless the named environment variable is set
+    /// (e.g. Altmetric's `ALTMETRIC_KEY`).
+    Required { env_var: &'static str },
+}
+
 pub trait Provider {
     /// Stable short name recorded in Snapshots (e.g. "openalex").
     fn name(&self) -> &'static str;
@@ -17,6 +33,12 @@ pub trait Provider {
 
     /// Fetch metrics for one Identity, returning exactly one Outcome.
     fn fetch(&self, identity: &Identity, transport: &dyn Transport) -> Outcome;
+
+    /// This Provider's relationship to an API key/token. Defaults to `None`
+    /// so the majority of keyless Providers need no boilerplate.
+    fn key_requirement(&self) -> KeyRequirement {
+        KeyRequirement::None
+    }
 }
 
 /// Classify a fetched HTTP status other than 200 into an Outcome (ADR-0002:

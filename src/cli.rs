@@ -1,6 +1,6 @@
-//! Command-line surface. Subcommands (`about`, `render`, `diff`, `init`),
-//! plus a bare-identifier shortcut so `boast 10.1234/x` means `boast about
-//! 10.1234/x`.
+//! Command-line surface. Subcommands (`about`, `render`, `diff`, `providers`,
+//! `init`), plus a bare-identifier shortcut so `boast 10.1234/x` means
+//! `boast about 10.1234/x`.
 
 use std::path::PathBuf;
 
@@ -11,13 +11,13 @@ use crate::diff;
 use crate::manifest::Manifest;
 use crate::model::{Identity, IdentityError, PackageId, Project, RepoId, Snapshot};
 use crate::orchestrator;
-use crate::providers::default_providers_with_topic;
+use crate::providers::{default_providers, default_providers_with_topic, render_providers};
 use crate::report::{render_markdown, render_prose, render_terminal};
 use crate::transport::{RetryingTransport, UreqTransport};
 
 /// Subcommands recognised as the first positional token. Anything else is
 /// treated as a bare identifier for `about`.
-const SUBCOMMANDS: &[&str] = &["about", "render", "diff", "init", "help"];
+const SUBCOMMANDS: &[&str] = &["about", "render", "diff", "providers", "init", "help"];
 
 #[derive(Debug, Parser)]
 #[command(
@@ -52,6 +52,10 @@ pub enum Command {
     /// Compare two stored Snapshots and report the change in each shared
     /// Metric. Never touches the network (ADR-0001).
     Diff(DiffArgs),
+
+    /// List the registered Providers: Category, default-enabled status, and
+    /// key requirement. Never touches the network.
+    Providers,
 
     /// Write a Manifest TOML file from identifiers, without fetching.
     Init(InitArgs),
@@ -205,6 +209,7 @@ pub fn main() -> i32 {
         Command::About(args) => run_about(args),
         Command::Render(args) => run_render(args),
         Command::Diff(args) => run_diff(args),
+        Command::Providers => run_providers(),
         Command::Init(args) => run_init(args),
     }
 }
@@ -574,6 +579,20 @@ fn run_diff(args: DiffArgs) -> i32 {
     }
 }
 
+/// List the registered Providers. Never touches the network — the registry
+/// itself, not any live data, is what's being reported on.
+fn run_providers() -> i32 {
+    let providers = default_providers();
+    print!(
+        "{}",
+        render_providers(&providers, |env_var| std::env::var(env_var)
+            .ok()
+            .filter(|s| !s.is_empty())
+            .is_some())
+    );
+    0
+}
+
 /// Read a `--from-file` source: a path, or `-` for stdin.
 fn read_source(path: &std::path::Path) -> std::io::Result<String> {
     if path.as_os_str() == "-" {
@@ -764,6 +783,22 @@ mod tests {
     fn cli_diff_requires_both_snapshots() {
         let err = Cli::try_parse_from(norm(&["boast", "diff", "old.json"])).unwrap_err();
         assert!(err.to_string().to_lowercase().contains("new"));
+    }
+
+    #[test]
+    fn providers_is_a_real_subcommand_never_swallowed_into_an_implicit_about() {
+        assert_eq!(norm(&["boast", "providers"]), vec!["boast", "providers"]);
+    }
+
+    #[test]
+    fn cli_parses_providers_with_no_arguments() {
+        let cli = Cli::try_parse_from(norm(&["boast", "providers"])).unwrap();
+        assert!(matches!(cli.command, Command::Providers));
+    }
+
+    #[test]
+    fn run_providers_lists_the_real_registry_and_always_succeeds() {
+        assert_eq!(run_providers(), 0);
     }
 
     #[test]

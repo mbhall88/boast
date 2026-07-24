@@ -8,7 +8,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use crate::model::{Category, Identity, Metric, MetricValue, Outcome, RepoId, Window};
-use crate::provider::{classify_status, Provider};
+use crate::provider::{classify_status, KeyRequirement, Provider};
 use crate::transport::Transport;
 
 const API: &str = "https://api.github.com";
@@ -105,6 +105,12 @@ impl Provider for GitHub {
 
     fn supports(&self, identity: &Identity) -> bool {
         matches!(identity, Identity::Repo(_))
+    }
+
+    fn key_requirement(&self) -> KeyRequirement {
+        KeyRequirement::Optional {
+            env_var: "GITHUB_TOKEN",
+        }
     }
 
     fn fetch(&self, identity: &Identity, transport: &dyn Transport) -> Outcome {
@@ -378,6 +384,16 @@ mod tests {
 
     fn repo() -> Identity {
         Identity::Repo(RepoId::parse("BurntSushi/ripgrep").unwrap())
+    }
+
+    #[test]
+    fn works_without_a_token_but_declares_it_as_an_optional_key() {
+        assert_eq!(
+            GitHub::new().key_requirement(),
+            KeyRequirement::Optional {
+                env_var: "GITHUB_TOKEN"
+            }
+        );
     }
 
     fn full_transport() -> MockTransport {

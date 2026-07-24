@@ -423,15 +423,24 @@ pub(crate) fn provider_notices(snapshot: &Snapshot) -> Vec<String> {
 }
 
 /// Build the display rows for one identity and Category from the Snapshot.
+/// A `Values` outcome buckets each Metric by its *own* `category` — a single
+/// Provider fetch can carry Metrics belonging to different Categories (e.g.
+/// OpenAlex's open-access status is Attention, alongside its Citations
+/// metrics from the same call) — matching `crate::diff`'s grouping. A
+/// `NotApplicable`/`Failed` outcome has no per-Metric breakdown to consult,
+/// so it falls back to the FetchResult's (i.e. the Provider's) own Category.
 fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row> {
     let mut rows = Vec::new();
     for result in &snapshot.results {
-        if result.identity != identity || result.category != category {
+        if result.identity != identity {
             continue;
         }
         match &result.outcome {
             Outcome::Values { metrics, .. } => {
                 for m in metrics {
+                    if m.category != category {
+                        continue;
+                    }
                     rows.push(Row {
                         name: m.name.clone(),
                         value: m.value.to_string(),
@@ -442,7 +451,7 @@ fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row>
                     });
                 }
             }
-            Outcome::NotApplicable { note } => rows.push(Row {
+            Outcome::NotApplicable { note } if result.category == category => rows.push(Row {
                 name: result.provider.clone(),
                 value: "N/A".to_string(),
                 window: String::new(),
@@ -450,7 +459,7 @@ fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row>
                 detail: note.clone(),
                 source: String::new(),
             }),
-            Outcome::Failed { error } => rows.push(Row {
+            Outcome::Failed { error } if result.category == category => rows.push(Row {
                 name: result.provider.clone(),
                 value: "FAILED".to_string(),
                 window: String::new(),
@@ -458,6 +467,7 @@ fn rows_for(snapshot: &Snapshot, identity: &str, category: Category) -> Vec<Row>
                 detail: error.clone(),
                 source: String::new(),
             }),
+            Outcome::NotApplicable { .. } | Outcome::Failed { .. } => {}
         }
     }
     rows
@@ -587,6 +597,36 @@ mod tests {
     }
 
     #[test]
+    fn a_single_providers_metrics_can_split_across_categories() {
+        // OpenAlex's citations metrics and its open-access status share one
+        // FetchResult but belong to different Categories in the Report.
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "openalex".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![
+                    metric("citations", MetricValue::Count(1421)),
+                    Metric {
+                        category: Category::Attention,
+                        ..metric("open_access", MetricValue::Text("gold".into()))
+                    },
+                ],
+                metadata: None,
+            },
+        }]);
+        let out = render_terminal(&snap);
+        assert!(out.contains("── Citations ──"));
+        assert!(out.contains("── Attention ──"));
+        let citations_block = out.split("── Attention ──").next().unwrap();
+        assert!(citations_block.contains("citations"));
+        assert!(!citations_block.contains("open_access"));
+        let attention_block = out.split("── Attention ──").nth(1).unwrap();
+        assert!(attention_block.contains("open_access"));
+        assert!(attention_block.contains("gold"));
+    }
+
+    #[test]
     fn shows_na_and_failed_distinctly_never_zero() {
         let mut snap = snapshot_with(vec![
             FetchResult {
@@ -612,6 +652,35 @@ mod tests {
         assert!(out.contains("FAILED"));
         assert!(!out.contains(" 0 "));
         assert!(out.contains("partial snapshot"));
+    }
+
+    #[test]
+    fn a_key_gated_providers_no_key_reason_is_visible_in_the_rendered_report_not_just_the_outcome()
+    {
+        // Regression check for issue #15 AC3: "the Report explicitly marks
+        // the rich breakdown 'not collected (no key)'" — the Provider's
+        // Outcome carrying the right note isn't enough on its own; it must
+        // actually reach rendered output under the Attention section. Uses
+        // the Provider's own constant (not a retyped literal) so this can't
+        // silently drift out of sync with what `altmetric.rs` actually says.
+        use crate::providers::altmetric;
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "altmetric".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Attention,
+            outcome: Outcome::NotApplicable {
+                note: altmetric::NO_KEY_NOTE.into(),
+            },
+        }]);
+        let terminal = render_terminal(&snap);
+        assert!(terminal.contains("── Attention ──"));
+        assert!(terminal.contains("altmetric"));
+        assert!(terminal.contains("N/A"));
+        assert!(terminal.contains(altmetric::NO_KEY_NOTE));
+
+        let markdown = render_markdown(&snap);
+        assert!(markdown.contains("### Attention"));
+        assert!(markdown.contains(altmetric::NO_KEY_NOTE));
     }
 
     #[test]

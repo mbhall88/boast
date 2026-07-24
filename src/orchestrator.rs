@@ -82,14 +82,40 @@ mod tests {
                 "ebi.ac.uk/europepmc/webservices/rest/search",
                 200,
                 r#"{"hitCount":1,"resultList":{"result":[{"citedByCount":3}]}}"#,
-            );
+            )
+            .on(
+                "en.wikipedia.org/w/api.php",
+                200,
+                r#"{"query":{"searchinfo":{"totalhits":2}}}"#,
+            )
+            // Only reached if ALTMETRIC_KEY happens to be set locally.
+            .on("api.altmetric.com/v1/fetch/doi/", 200, r#"{"score":1.0}"#);
 
         let snap = run(&project(), &default_providers(), &t);
 
         assert_eq!(snap.schema_version, Snapshot::SCHEMA_VERSION);
         assert_eq!(snap.identities, vec!["doi:10.1/x".to_string()]);
         assert!(!snap.has_failures());
-        assert_eq!(snap.metrics().count(), 4);
+        // OpenAlex(2) + Dimensions(1) + Europe PMC(1) + Wikipedia(1); Crossref
+        // has no record. Altmetric contributes 0 unless ALTMETRIC_KEY happens
+        // to be set in the environment running this test (see tests/skeleton.rs
+        // for the same guard against that ambient-env dependency).
+        assert_eq!(snap.metrics().count(), 5 + altmetric_metric_count());
+    }
+
+    /// How many Metrics `Altmetric::new()` contributes in these tests' mocked
+    /// `{"score":1.0}` response: 0 unless `ALTMETRIC_KEY` happens to be set in
+    /// the environment running the test (in which case it's a real fetch, not
+    /// the early no-key `NotApplicable`).
+    fn altmetric_metric_count() -> usize {
+        let has_key = std::env::var("ALTMETRIC_KEY")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if has_key {
+            1
+        } else {
+            0
+        }
     }
 
     #[test]
@@ -107,7 +133,10 @@ mod tests {
                 "ebi.ac.uk/europepmc/webservices/rest/search",
                 200,
                 r#"{"hitCount":0,"resultList":{"result":[]}}"#,
-            );
+            )
+            .on("en.wikipedia.org/w/api.php", 404, "")
+            // Only reached if ALTMETRIC_KEY happens to be set locally.
+            .on("api.altmetric.com/v1/fetch/doi/", 404, "");
         let snap = run(&project(), &default_providers(), &t);
 
         assert!(snap.has_failures());
@@ -127,6 +156,9 @@ mod tests {
                 200,
                 r#"{"hitCount":0,"resultList":{"result":[]}}"#,
             )
+            .on("en.wikipedia.org/w/api.php", 404, "")
+            // Only reached if ALTMETRIC_KEY happens to be set locally.
+            .on("api.altmetric.com/v1/fetch/doi/", 404, "")
     }
 
     #[test]

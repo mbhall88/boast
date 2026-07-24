@@ -1,6 +1,10 @@
 //! OpenAlex citation Provider: the headline citation count plus the
 //! field-weighted citation impact (FWCI) and citation percentile — all free,
-//! no key. This is the walking skeleton's payload Provider.
+//! no key. This is the walking skeleton's payload Provider. Also the source
+//! of the keyless-default Attention Category's open-access status (ADR-0003)
+//! — a single OpenAlex call answers both Categories, so that Metric is tagged
+//! `Category::Attention` directly rather than routed through a second
+//! Provider/fetch for data the response already carries.
 
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -18,6 +22,7 @@ struct OaWork {
     cited_by_count: Option<u64>,
     fwci: Option<f64>,
     citation_normalized_percentile: Option<OaPercentile>,
+    open_access: Option<OaOpenAccess>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +30,11 @@ struct OaPercentile {
     value: Option<f64>,
     is_in_top_1_percent: Option<bool>,
     is_in_top_10_percent: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OaOpenAccess {
+    oa_status: Option<String>,
 }
 
 impl OpenAlex {
@@ -102,6 +112,23 @@ impl OpenAlex {
             }
         }
 
+        if let Some(status) = work.open_access.and_then(|oa| oa.oa_status) {
+            metrics.push(Metric {
+                name: "open_access".into(),
+                category: Category::Attention,
+                value: MetricValue::Text(status),
+                window: Window::Cumulative,
+                provider: "openalex".into(),
+                identity: identity_canonical.into(),
+                as_of,
+                source: url.into(),
+                note: Some(
+                    "OpenAlex open-access status; \"closed\" means no open-access copy found"
+                        .into(),
+                ),
+            });
+        }
+
         if metrics.is_empty() {
             Outcome::NotApplicable {
                 note: "OpenAlex returned no citation metrics for this record".into(),
@@ -177,7 +204,7 @@ mod tests {
             other => panic!("expected Values, got {other:?}"),
         };
 
-        assert_eq!(metrics.len(), 3);
+        assert_eq!(metrics.len(), 4);
         let cites = metrics.iter().find(|m| m.name == "citations").unwrap();
         assert_eq!(cites.value, MetricValue::Count(1421));
         assert_eq!(cites.window, Window::Cumulative);
@@ -196,16 +223,22 @@ mod tests {
             pct.note.as_deref(),
             Some("top 1% in its field, year, and type")
         );
+
+        let oa = metrics.iter().find(|m| m.name == "open_access").unwrap();
+        assert_eq!(oa.value, MetricValue::Text("gold".into()));
+        assert_eq!(oa.category, Category::Attention);
+        assert_eq!(oa.window, Window::Cumulative);
     }
 
     #[test]
-    fn handles_null_fwci_and_percentile() {
+    fn handles_null_fwci_and_percentile_and_omits_open_access_when_absent() {
         let body = r#"{"cited_by_count": 5, "fwci": null, "citation_normalized_percentile": null}"#;
         let t = MockTransport::new().on("works/doi:", 200, body);
         match OpenAlex.fetch(&doi(), &t) {
             Outcome::Values { metrics, .. } => {
                 assert_eq!(metrics.len(), 1);
                 assert_eq!(metrics[0].value, MetricValue::Count(5));
+                assert!(!metrics.iter().any(|m| m.name == "open_access"));
             }
             other => panic!("expected Values, got {other:?}"),
         }

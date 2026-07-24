@@ -1,0 +1,19 @@
+{
+  "batchcomplete": "",
+  "query": {
+    "searchinfo": {
+      "totalhits": 9
+    },
+    "search": [
+      {
+        "ns": 0,
+        "title": "Big data",
+        "pageid": 4383469,
+        "size": 45213,
+        "wordcount": 5230,
+        "snippet": "...doi:<span class=\"searchmatch\">10.1371/journal.pbio.1002195</span>...",
+        "timestamp": "2026-03-14T00:00:00Z"
+      }
+    ]
+  }
+}

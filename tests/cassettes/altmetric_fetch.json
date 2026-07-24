@@ -1,0 +1,20 @@
+{
+  "altmetric_id": 987654,
+  "doi": "10.1371/journal.pbio.1002195",
+  "title": "Big Data: Astronomical or Genomical?",
+  "score": 214.35,
+  "details_url": "https://www.altmetric.com/details/987654",
+  "cited_by_posts_count": 210,
+  "cited_by_msm_count": 12,
+  "cited_by_feeds_count": 8,
+  "cited_by_policies_count": 2,
+  "cited_by_patents_count": 1,
+  "cited_by_tweeters_count": 180,
+  "cited_by_fbwalls_count": 3,
+  "readers_count": 245,
+  "readers": {
+    "mendeley": 240,
+    "citeulike": 0,
+    "connotea": 0
+  }
+}

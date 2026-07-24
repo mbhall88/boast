@@ -1,5 +1,6 @@
 //! The curated default set of Providers.
 
+pub mod altmetric;
 pub mod anaconda;
 pub mod crates_io;
 pub mod crossref;
@@ -9,6 +10,7 @@ pub mod github;
 pub mod homebrew;
 pub mod openalex;
 pub mod pypi;
+pub mod wikipedia;
 
 use crate::provider::Provider;
 
@@ -25,6 +27,8 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
         Box::new(crossref::Crossref),
         Box::new(dimensions::Dimensions),
         Box::new(europe_pmc::EuropePmc),
+        Box::new(wikipedia::Wikipedia),
+        Box::new(altmetric::Altmetric::new()),
         Box::new(github::GitHub::with_topic(topic)),
         Box::new(crates_io::CratesIo),
         Box::new(anaconda::Anaconda),

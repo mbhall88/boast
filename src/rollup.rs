@@ -4,7 +4,8 @@
 //! always labelled as derived rather than presented as a single authoritative
 //! figure (see the Rollup glossary entry in `CONTEXT.md`).
 
-use crate::model::{Metric, MetricValue, Window};
+use crate::model::{Category, Metric, MetricValue, Window};
+use crate::providers::github;
 
 /// A derived total across two or more Metrics sharing an exactly-equal
 /// Window. Names every channel it includes, per CONTEXT.md's Rollup entry.
@@ -31,13 +32,16 @@ pub struct RollupChannel {
 /// A Window with only one contributing Metric is left out of the result
 /// entirely — there is nothing to roll up, so the caller's own Metric rows
 /// already show the figure. Only `MetricValue::Count` values can contribute;
-/// this is purely a defensive filter since every Category::Downloads Metric
-/// today is a Count, but a Rollup is a count total and must never silently
-/// coerce or skip a non-Count value into one.
+/// this is purely a defensive filter since every download-eligible Metric
+/// (see [`counts_as_download`]) is a Count, but a Rollup is a count total and
+/// must never silently coerce or skip a non-Count value into one.
 ///
 /// Group order matches the order Windows are first encountered, and channel
 /// order within a group matches input order, so output is deterministic for
-/// a given input — no dependency on hash-map iteration order.
+/// a given input — no dependency on hash-map iteration order. `compute`
+/// itself is Category-agnostic — it groups whatever Metrics the caller
+/// passes in; [`counts_as_download`] is the caller-side eligibility check
+/// used to select the Downloads Rollup's inputs.
 pub fn compute<'a>(metrics: impl IntoIterator<Item = &'a Metric>) -> Vec<Rollup> {
     let mut groups: Vec<(Window, Vec<RollupChannel>)> = Vec::new();
 
@@ -66,6 +70,19 @@ pub fn compute<'a>(metrics: impl IntoIterator<Item = &'a Metric>) -> Vec<Rollup>
             channels,
         })
         .collect()
+}
+
+/// Whether `m` counts as a "download" for the Downloads Rollup, independent
+/// of which Category it displays under in a Report. Every `Category::Downloads`
+/// Metric qualifies. GitHub's `release_downloads` is the one deliberate
+/// exception: it displays under Code (see CONTEXT.md's Category glossary and
+/// the spec's Code Provider bullet), but is still, semantically, a
+/// per-channel download count — the spec's own Downloads Provider bullet
+/// already names GitHub release assets there with Rollup eligibility, so it
+/// still contributes to the total even though its Report row lives elsewhere.
+pub fn counts_as_download(m: &Metric) -> bool {
+    m.category == Category::Downloads
+        || (m.provider == github::NAME && m.name == github::RELEASE_DOWNLOADS_METRIC)
 }
 
 #[cfg(test)]
@@ -190,5 +207,54 @@ mod tests {
         ];
         // Only one Count-valued Metric shares the window, so nothing rolls up.
         assert_eq!(compute(&metrics), Vec::new());
+    }
+
+    fn code_metric(name: &str, provider: &str, value: u64, window: Window) -> Metric {
+        Metric {
+            name: name.into(),
+            category: Category::Code,
+            value: MetricValue::Count(value),
+            window,
+            provider: provider.into(),
+            identity: "github:owner/name".into(),
+            as_of: OffsetDateTime::UNIX_EPOCH,
+            source: "https://api.github.com/repos/owner/name/releases".into(),
+            note: None,
+        }
+    }
+
+    #[test]
+    fn github_release_downloads_counts_as_a_download_despite_its_code_category() {
+        let m = code_metric("release_downloads", "github", 500, Window::Cumulative);
+        assert!(counts_as_download(&m));
+    }
+
+    #[test]
+    fn a_code_metric_that_isnt_release_downloads_does_not_count() {
+        let stars = code_metric("stars", "github", 500, Window::Cumulative);
+        assert!(!counts_as_download(&stars));
+        // Same metric name on a different (hypothetical) provider must not
+        // accidentally qualify — the exception is this one Provider's Metric.
+        let same_name_elsewhere =
+            code_metric("release_downloads", "example", 500, Window::Cumulative);
+        assert!(!counts_as_download(&same_name_elsewhere));
+    }
+
+    #[test]
+    fn every_downloads_category_metric_counts() {
+        let m = metric("crates.io", "crates:boast", 100, Window::Cumulative);
+        assert!(counts_as_download(&m));
+    }
+
+    #[test]
+    fn release_downloads_joins_the_rollup_with_other_download_channels() {
+        let metrics = [
+            metric("crates.io", "crates:boast", 100, Window::Cumulative),
+            code_metric("release_downloads", "github", 50, Window::Cumulative),
+        ];
+        let eligible: Vec<&Metric> = metrics.iter().filter(|m| counts_as_download(m)).collect();
+        let rollups = compute(eligible);
+        assert_eq!(rollups.len(), 1);
+        assert_eq!(rollups[0].total, 150);
     }
 }

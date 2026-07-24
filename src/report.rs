@@ -92,9 +92,7 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
         }
     }
 
-    let downloads = snapshot
-        .metrics()
-        .filter(|m| m.category == Category::Downloads);
+    let downloads = snapshot.metrics().filter(|m| rollup::counts_as_download(m));
     let rollups = rollup::compute(downloads);
     if !rollups.is_empty() {
         out.push_str("\n═══ Downloads Rollup (derived — see channels above) ═══\n");
@@ -193,9 +191,7 @@ pub fn render_markdown(snapshot: &Snapshot) -> String {
         }
     }
 
-    let downloads = snapshot
-        .metrics()
-        .filter(|m| m.category == Category::Downloads);
+    let downloads = snapshot.metrics().filter(|m| rollup::counts_as_download(m));
     let rollups = rollup::compute(downloads);
     if !rollups.is_empty() {
         out.push_str("\n## Downloads Rollup (derived — see channels above)\n\n");
@@ -382,7 +378,7 @@ enum DownloadsHeadline {
 fn headline_downloads(snapshot: &Snapshot) -> Option<DownloadsHeadline> {
     let downloads: Vec<_> = snapshot
         .metrics()
-        .filter(|m| m.category == Category::Downloads)
+        .filter(|m| rollup::counts_as_download(m))
         .collect();
 
     let rollups = rollup::compute(downloads.iter().copied());
@@ -682,6 +678,31 @@ mod tests {
         }
     }
 
+    /// GitHub's `release_downloads` Metric displays under Code, not Downloads
+    /// (see CONTEXT.md's Category glossary) but still counts toward the
+    /// Downloads Rollup (`rollup::counts_as_download`).
+    fn release_downloads_result(identity: &str, value: u64) -> FetchResult {
+        FetchResult {
+            provider: "github".into(),
+            identity: identity.into(),
+            category: Category::Code,
+            outcome: Outcome::Values {
+                metrics: vec![Metric {
+                    name: "release_downloads".into(),
+                    category: Category::Code,
+                    value: MetricValue::Count(value),
+                    window: Window::Cumulative,
+                    provider: "github".into(),
+                    identity: identity.into(),
+                    as_of: OffsetDateTime::UNIX_EPOCH,
+                    source: "https://api.github.com/repos/owner/name/releases".into(),
+                    note: None,
+                }],
+                metadata: None,
+            },
+        }
+    }
+
     #[test]
     fn shows_a_labelled_rollup_across_channels_with_a_shared_window() {
         let mut snap = snapshot_with(vec![
@@ -762,6 +783,25 @@ mod tests {
         assert_eq!(out.matches("Downloads Rollup").count(), 1);
         assert!(out.contains("150 all-time"));
         assert!(out.contains("10 last 30 days"));
+    }
+
+    #[test]
+    fn github_release_downloads_row_stays_under_code_but_still_joins_the_rollup() {
+        let mut snap = snapshot_with(vec![
+            downloads_result("crates.io", "crates:boast", 100, Window::Cumulative),
+            release_downloads_result("github:owner/name", 50),
+        ]);
+        snap.identities = vec!["crates:boast".into(), "github:owner/name".into()];
+
+        let out = render_terminal(&snap);
+        // The row itself renders in its own Identity's Code section, not Downloads.
+        let github_block = out.split("━━ github:owner/name ━━").nth(1).unwrap();
+        assert!(github_block.contains("── Code ──"));
+        assert!(github_block.contains("release_downloads"));
+        assert!(!github_block.contains("── Downloads ──"));
+        // But it still contributes to the Rollup total.
+        assert!(out.contains("Downloads Rollup"));
+        assert!(out.contains("150")); // 100 (crates.io) + 50 (release_downloads)
     }
 
     // -- render_markdown --------------------------------------------------

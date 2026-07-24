@@ -36,8 +36,8 @@ fn cassettes_drive_full_pipeline() {
     assert_eq!(snapshot.schema_version, boast::Snapshot::SCHEMA_VERSION);
     assert!(!snapshot.has_failures());
     // 3 from OpenAlex (citations, fwci, percentile) + 1 from Crossref (citations)
-    // + 3 from Dimensions (citations, fcr, rcr) + 1 from Europe PMC (citations).
-    assert_eq!(snapshot.metrics().count(), 8);
+    // + 4 from Dimensions (citations, recent_citations, fcr, rcr) + 1 from Europe PMC (citations).
+    assert_eq!(snapshot.metrics().count(), 9);
     // Crossref contributes one paper description.
     assert_eq!(snapshot.descriptions().count(), 1);
 
@@ -46,6 +46,7 @@ fn cassettes_drive_full_pipeline() {
     assert!(report.contains("1421")); // OpenAlex citations
     assert!(report.contains("1161")); // Crossref citations
     assert!(report.contains("1285")); // Dimensions citations
+    assert!(report.contains("161")); // Dimensions recent_citations
     assert!(report.contains("116.66")); // Dimensions FCR
     assert!(report.contains("15.96")); // Dimensions RCR
     assert!(report.contains("581")); // Europe PMC citations

@@ -13,6 +13,15 @@ use crate::transport::Transport;
 
 const API: &str = "https://api.github.com";
 
+/// This Provider's stable name, as recorded on every Metric it produces.
+pub(crate) const NAME: &str = "github";
+
+/// The name of the release-asset-downloads Metric this Provider produces.
+/// Pulled out as a constant (rather than a literal duplicated at each use)
+/// so `rollup::counts_as_download`'s Category::Code exception for it can't
+/// silently drift out of sync with a rename here.
+pub(crate) const RELEASE_DOWNLOADS_METRIC: &str = "release_downloads";
+
 pub struct GitHub {
     token: Option<String>,
     /// An explicit topic to rank the repo within, overriding its own declared
@@ -87,7 +96,7 @@ impl Default for GitHub {
 
 impl Provider for GitHub {
     fn name(&self) -> &'static str {
-        "github"
+        NAME
     }
 
     fn category(&self) -> Category {
@@ -153,7 +162,7 @@ impl Provider for GitHub {
                 category: Category::Code,
                 value,
                 window: Window::Cumulative,
-                provider: "github".into(),
+                provider: NAME.into(),
                 identity: canonical.clone(),
                 as_of,
                 source: source.into(),
@@ -200,7 +209,7 @@ impl Provider for GitHub {
         let releases_url = format!("{base}/releases?per_page=100");
         if let Some(total) = release_download_total(transport, &releases_url, &headers) {
             push(
-                "release_downloads",
+                RELEASE_DOWNLOADS_METRIC,
                 MetricValue::Count(total),
                 &releases_url,
                 Some("summed across release assets"),

@@ -49,5 +49,5 @@ A source-specific component that, given an Identity, fetches zero or more Metric
 _Avoid_: Source, backend, connector, adapter
 
 **Identity**:
-One external handle a Project links to, of a known kind: a code repository, a distribution package (with its registry), or a paper (DOI / PubMed ID). A Provider consumes Identities of the kinds it understands.
+One external handle a Project links to, of a known kind: a code repository, a distribution package (with its registry), or a paper (DOI / PubMed ID). A Provider consumes Identities of the kinds it understands. An Identity always names a *piece of work*, never a person: a researcher identifier (an ORCID iD) is not an Identity but an input that *expands into* a set of them (see ADR-0006).
 _Avoid_: Handle, reference, link, target

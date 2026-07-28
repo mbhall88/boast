@@ -1,13 +1,36 @@
 //! Runs the enabled Providers over a Project's Identities and assembles a
 //! Snapshot. Best-effort: one Provider's failure never blocks the others; each
 //! Provider×Identity fetch is recorded as its own Outcome (ADR-0002).
+//!
+//! Fetches run concurrently across hosts but strictly serially within one
+//! host — see ADR-0007. Every current Provider maps 1:1 onto a distinct
+//! host, so a Provider's name stands in for its host.
+
+use std::collections::VecDeque;
+use std::sync::Mutex;
 
 use time::OffsetDateTime;
 use tracing::{debug, warn};
 
-use crate::model::{FetchResult, Outcome, Project, Snapshot};
+use crate::model::{FetchResult, Identity, Outcome, Project, Snapshot};
 use crate::provider::Provider;
 use crate::transport::Transport;
+
+/// Worker threads never exceed this, regardless of how many distinct hosts
+/// or Identities a Project has — jobs queue up per host rather than one
+/// thread being spawned per job (ADR-0007's "bounded" requirement). The
+/// current default registry only ever has ~11 hosts, so this is mostly a
+/// safety ceiling for a future larger set of Providers.
+const MAX_CONCURRENT_HOSTS: usize = 8;
+
+/// One Provider×Identity fetch to perform. Built once, up front, so the job
+/// list's order — identity-major, provider-minor, same as the old nested
+/// loop — is fixed before any thread starts, independent of completion order.
+struct Job<'a> {
+    provider: &'a dyn Provider,
+    identity: &'a Identity,
+    canonical: String,
+}
 
 /// Fetch every applicable Provider for every Identity and return a Snapshot.
 pub fn run(
@@ -15,35 +38,90 @@ pub fn run(
     providers: &[Box<dyn Provider>],
     transport: &dyn Transport,
 ) -> Snapshot {
-    let mut results = Vec::new();
-
+    let mut jobs: Vec<Job> = Vec::new();
     for identity in &project.identities {
         let canonical = identity.canonical();
         for provider in providers {
-            if !provider.supports(identity) {
-                continue;
+            if provider.supports(identity) {
+                jobs.push(Job {
+                    provider: provider.as_ref(),
+                    identity,
+                    canonical: canonical.clone(),
+                });
             }
-            debug!(provider = provider.name(), identity = %canonical, "fetching");
-            let outcome = provider.fetch(identity, transport);
-            match &outcome {
-                Outcome::Values { metrics, .. } => {
-                    debug!(provider = provider.name(), identity = %canonical, metrics = metrics.len(), "fetched")
-                }
-                Outcome::NotApplicable { note } => {
-                    debug!(provider = provider.name(), identity = %canonical, %note, "not applicable")
-                }
-                Outcome::Failed { error } => {
-                    warn!(provider = provider.name(), identity = %canonical, %error, "fetch failed")
-                }
-            }
-            results.push(FetchResult {
-                provider: provider.name().to_string(),
-                identity: canonical.clone(),
-                category: provider.category(),
-                outcome,
-            });
         }
     }
+
+    // Group job indices by host (Provider name), preserving first-seen
+    // order, so a host's jobs form one queue that's always drained strictly
+    // in order by whichever worker thread picks it up — polite pools like
+    // Crossref/OpenAlex must never see two concurrent requests from us.
+    let mut host_order: Vec<&str> = Vec::new();
+    let mut host_queues: Vec<VecDeque<usize>> = Vec::new();
+    for (index, job) in jobs.iter().enumerate() {
+        let host = job.provider.name();
+        let slot = match host_order.iter().position(|h| *h == host) {
+            Some(slot) => slot,
+            None => {
+                host_order.push(host);
+                host_queues.push(VecDeque::new());
+                host_order.len() - 1
+            }
+        };
+        host_queues[slot].push_back(index);
+    }
+    let host_count = host_queues.len();
+
+    // Each job writes exactly once, to its own pre-assigned slot, so the
+    // final `results` order is the job order above — never completion order.
+    let slots: Vec<Mutex<Option<FetchResult>>> = jobs.iter().map(|_| Mutex::new(None)).collect();
+    let queues: Mutex<VecDeque<VecDeque<usize>>> = Mutex::new(host_queues.into_iter().collect());
+
+    std::thread::scope(|scope| {
+        for _ in 0..host_count.min(MAX_CONCURRENT_HOSTS) {
+            scope.spawn(|| {
+                loop {
+                    let Some(queue) = queues.lock().unwrap().pop_front() else {
+                        break;
+                    };
+                    for job_index in queue {
+                        let job = &jobs[job_index];
+                        debug!(provider = job.provider.name(), identity = %job.canonical, "fetching");
+                        let outcome = job.provider.fetch(job.identity, transport);
+                        match &outcome {
+                            Outcome::Values { metrics, .. } => {
+                                debug!(provider = job.provider.name(), identity = %job.canonical, metrics = metrics.len(), "fetched")
+                            }
+                            Outcome::NotApplicable { note } => {
+                                debug!(provider = job.provider.name(), identity = %job.canonical, %note, "not applicable")
+                            }
+                            Outcome::Failed { error } => {
+                                warn!(provider = job.provider.name(), identity = %job.canonical, %error, "fetch failed")
+                            }
+                        }
+                        *slots[job_index].lock().unwrap() = Some(FetchResult {
+                            provider: job.provider.name().to_string(),
+                            // Second clone of `canonical` (the first built
+                            // the Job): `job` is `&Job` shared from `jobs`,
+                            // so nothing can move out of it here.
+                            identity: job.canonical.clone(),
+                            category: job.provider.category(),
+                            outcome,
+                        });
+                    }
+                }
+            });
+        }
+    });
+
+    let results = slots
+        .into_iter()
+        .map(|slot| {
+            slot.into_inner()
+                .unwrap()
+                .expect("every job slot is written exactly once before threads join")
+        })
+        .collect();
 
     Snapshot {
         schema_version: Snapshot::SCHEMA_VERSION,
@@ -58,9 +136,12 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Identity, Outcome, PaperId};
+    use crate::model::{Category, Identity, Outcome, PaperId};
     use crate::providers::default_providers;
     use crate::transport::{MockTransport, TransportError};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
 
     fn project() -> Project {
         Project::new(vec![Identity::Paper(PaperId::Doi("10.1/x".into()))])
@@ -213,5 +294,182 @@ mod tests {
             .find(|r| r.provider == "openalex")
             .unwrap();
         assert!(matches!(openalex.outcome, Outcome::Failed { .. }));
+    }
+
+    /// A `Provider` test double that sleeps for a fixed delay before
+    /// returning, so tests can force a specific completion order.
+    struct SlowProvider {
+        name: &'static str,
+        delay: Duration,
+    }
+
+    impl Provider for SlowProvider {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn category(&self) -> Category {
+            Category::Code
+        }
+
+        fn supports(&self, _identity: &Identity) -> bool {
+            true
+        }
+
+        fn fetch(&self, _identity: &Identity, _transport: &dyn Transport) -> Outcome {
+            std::thread::sleep(self.delay);
+            Outcome::NotApplicable {
+                note: self.name.to_string(),
+            }
+        }
+    }
+
+    #[test]
+    fn results_are_ordered_by_job_order_not_completion_order() {
+        // Two distinct-host Providers on one Project; the first-declared one
+        // is by far the slower, so it finishes *last*. If Snapshot results
+        // were assembled in completion order (a race), "fast" would come
+        // first — it must not: ordering must match job order for byte-
+        // identical Snapshot JSON across runs (ADR-0007).
+        let providers: Vec<Box<dyn Provider>> = vec![
+            Box::new(SlowProvider {
+                name: "slow",
+                delay: Duration::from_millis(60),
+            }),
+            Box::new(SlowProvider {
+                name: "fast",
+                delay: Duration::from_millis(0),
+            }),
+        ];
+        let t = MockTransport::new();
+
+        let snap = run(&project(), &providers, &t);
+
+        let order: Vec<&str> = snap.results.iter().map(|r| r.provider.as_str()).collect();
+        assert_eq!(order, vec!["slow", "fast"]);
+    }
+
+    /// A `Provider` test double that asserts it is never entered while
+    /// another fetch on the same shared `busy` flag is still in flight —
+    /// i.e. that two jobs sharing a host never overlap.
+    struct GuardedProvider {
+        busy: Arc<AtomicBool>,
+        delay: Duration,
+    }
+
+    impl Provider for GuardedProvider {
+        fn name(&self) -> &'static str {
+            "guarded"
+        }
+
+        fn category(&self) -> Category {
+            Category::Code
+        }
+
+        fn supports(&self, _identity: &Identity) -> bool {
+            true
+        }
+
+        fn fetch(&self, _identity: &Identity, _transport: &dyn Transport) -> Outcome {
+            assert!(
+                !self.busy.swap(true, Ordering::SeqCst),
+                "two fetches on the same host ran concurrently"
+            );
+            std::thread::sleep(self.delay);
+            self.busy.store(false, Ordering::SeqCst);
+            Outcome::NotApplicable {
+                note: "guarded".to_string(),
+            }
+        }
+    }
+
+    #[test]
+    fn same_host_jobs_never_run_concurrently() {
+        // A Project with two Identities, both supported by the one
+        // `GuardedProvider` — both jobs land on the same host queue and must
+        // be drained strictly serially, never in parallel.
+        let busy = Arc::new(AtomicBool::new(false));
+        let providers: Vec<Box<dyn Provider>> = vec![Box::new(GuardedProvider {
+            busy,
+            delay: Duration::from_millis(20),
+        })];
+        let project = Project::new(vec![
+            Identity::Paper(PaperId::Doi("10.1/a".into())),
+            Identity::Paper(PaperId::Doi("10.1/b".into())),
+        ]);
+        let t = MockTransport::new();
+
+        let snap = run(&project, &providers, &t);
+
+        assert_eq!(snap.results.len(), 2);
+    }
+
+    /// A `Provider` test double that records how many `CountingProvider`
+    /// instances are inside `fetch` at once, and the peak seen across the
+    /// whole run.
+    struct CountingProvider {
+        name: &'static str,
+        active: Arc<AtomicUsize>,
+        peak: Arc<AtomicUsize>,
+    }
+
+    impl Provider for CountingProvider {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+
+        fn category(&self) -> Category {
+            Category::Code
+        }
+
+        fn supports(&self, _identity: &Identity) -> bool {
+            true
+        }
+
+        fn fetch(&self, _identity: &Identity, _transport: &dyn Transport) -> Outcome {
+            let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(15));
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Outcome::NotApplicable {
+                note: "counting".to_string(),
+            }
+        }
+    }
+
+    #[test]
+    fn concurrency_is_bounded_even_with_more_hosts_than_the_cap() {
+        // More distinct hosts than MAX_CONCURRENT_HOSTS, all on one Identity
+        // so every job is immediately runnable — this is the shape that
+        // would spawn unbounded threads if the cap weren't enforced.
+        const NAMES: [&str; 12] = [
+            "h0", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10", "h11",
+        ];
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let providers: Vec<Box<dyn Provider>> = NAMES
+            .iter()
+            .map(|&name| {
+                Box::new(CountingProvider {
+                    name,
+                    active: active.clone(),
+                    peak: peak.clone(),
+                }) as Box<dyn Provider>
+            })
+            .collect();
+        let t = MockTransport::new();
+
+        let snap = run(&project(), &providers, &t);
+
+        assert_eq!(snap.results.len(), NAMES.len());
+        let observed_peak = peak.load(Ordering::SeqCst);
+        assert!(
+            observed_peak <= MAX_CONCURRENT_HOSTS,
+            "peak concurrency {observed_peak} exceeded the bound of {MAX_CONCURRENT_HOSTS}"
+        );
+        assert!(
+            observed_peak >= 2,
+            "sanity check: expected some real concurrency, saw peak {observed_peak}"
+        );
     }
 }

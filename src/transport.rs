@@ -3,8 +3,8 @@
 //! from recorded responses in tests (see [`MockTransport`]). The production
 //! implementation is rustls-only (ADR-0004).
 
-use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Mutex;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -45,7 +45,11 @@ pub enum TransportError {
 
 /// The one seam. Given a URL (and optional request headers, e.g. an auth
 /// token), return a response or a transport failure.
-pub trait Transport {
+///
+/// `Sync`: the orchestrator calls through a shared `&dyn Transport` from
+/// multiple threads at once (bounded, one per host), so every implementation
+/// must be safe to call concurrently.
+pub trait Transport: Sync {
     fn get_with_headers(
         &self,
         url: &str,
@@ -271,8 +275,11 @@ enum MockReply {
     },
     Error(TransportError),
     /// A scripted queue of `(status, body)` replies: each call consumes the
-    /// next entry in order; once only one is left, it repeats.
-    Sequence(RefCell<VecDeque<(u16, String)>>),
+    /// next entry in order; once only one is left, it repeats. `Mutex` (not
+    /// `RefCell`) so `MockTransport` stays `Sync` — the orchestrator may call
+    /// a route from multiple threads (never concurrently for the *same*
+    /// host, but `MockTransport` itself has no way to know that).
+    Sequence(Mutex<VecDeque<(u16, String)>>),
 }
 
 impl MockTransport {
@@ -330,7 +337,7 @@ impl MockTransport {
     pub fn on_sequence(mut self, url_contains: &str, replies: &[(u16, &str)]) -> Self {
         self.routes.push((
             url_contains.to_string(),
-            MockReply::Sequence(RefCell::new(
+            MockReply::Sequence(Mutex::new(
                 replies.iter().map(|(s, b)| (*s, b.to_string())).collect(),
             )),
         ));
@@ -359,7 +366,7 @@ impl Transport for MockTransport {
                     }),
                     MockReply::Error(e) => Err(e.clone()),
                     MockReply::Sequence(queue) => {
-                        let mut queue = queue.borrow_mut();
+                        let mut queue = queue.lock().unwrap();
                         let (status, body) = if queue.len() > 1 {
                             queue.pop_front().expect("checked non-empty above")
                         } else {

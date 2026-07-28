@@ -141,6 +141,32 @@ pub struct AboutArgs {
     /// Manifest — use `boast init` to build one up front instead.
     #[arg(short = 's', long = "save", value_name = "FILE")]
     pub save: Option<PathBuf>,
+
+    /// Maximum number of distinct hosts fetched from concurrently. Never
+    /// more than one request is in flight against the *same* host no matter
+    /// how high this is set (ADR-0007). Raising it past the number
+    /// of hosts a Project actually touches (at most the Provider registry's
+    /// size, ~11 by default) buys nothing; lower it to open fewer
+    /// simultaneous connections.
+    #[arg(
+        short = 'j',
+        long = "threads",
+        default_value_t = orchestrator::DEFAULT_CONCURRENCY,
+        value_parser = parse_at_least_one,
+        value_name = "N"
+    )]
+    pub threads: usize,
+}
+
+/// `--threads`' value parser: `usize::from_str` plus a clear rejection of
+/// `0` (which would leave every fetch queued forever with no worker to run
+/// it — see `orchestrator::run_with_concurrency`'s doc comment).
+fn parse_at_least_one(s: &str) -> Result<usize, String> {
+    match s.parse::<usize>() {
+        Ok(0) => Err("must be at least 1".to_string()),
+        Ok(n) => Ok(n),
+        Err(_) => Err(format!("'{s}' is not a valid number")),
+    }
 }
 
 #[derive(Debug, Args)]
@@ -293,7 +319,8 @@ fn run_about(args: AboutArgs) -> i32 {
     let transport = RetryingTransport::new(UreqTransport::new());
     let providers = default_providers_with_topic(args.topic.clone());
 
-    let snapshot = orchestrator::run(&project, &providers, &transport);
+    let snapshot =
+        orchestrator::run_with_concurrency(&project, &providers, &transport, args.threads);
 
     if let Err(code) = print_and_save_snapshot(&snapshot, &args, None) {
         return code;
@@ -370,7 +397,8 @@ fn run_about_manifest(path: &std::path::Path, args: &AboutArgs) -> i32 {
         let topic = args.topic.clone().or_else(|| entry.topic.clone());
         let providers = default_providers_with_topic(topic);
 
-        let snapshot = orchestrator::run(&project, &providers, &transport);
+        let snapshot =
+            orchestrator::run_with_concurrency(&project, &providers, &transport, args.threads);
 
         if index > 0 {
             println!();
@@ -850,6 +878,36 @@ pmid:31234567
             panic!("expected About")
         };
         assert_eq!(a.save, Some(PathBuf::from("out.toml")));
+    }
+
+    #[test]
+    fn threads_defaults_to_the_orchestrator_default() {
+        let cli = Cli::try_parse_from(norm(&["boast", "10.1/x"])).unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        assert_eq!(a.threads, orchestrator::DEFAULT_CONCURRENCY);
+    }
+
+    #[test]
+    fn threads_flag_accepts_a_short_and_long_form() {
+        let cli = Cli::try_parse_from(norm(&["boast", "10.1/x", "-j", "1"])).unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        assert_eq!(a.threads, 1);
+
+        let cli = Cli::try_parse_from(norm(&["boast", "10.1/x", "--threads", "3"])).unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        assert_eq!(a.threads, 3);
+    }
+
+    #[test]
+    fn threads_flag_rejects_zero_with_a_clear_error() {
+        let err = Cli::try_parse_from(norm(&["boast", "10.1/x", "--threads", "0"])).unwrap_err();
+        assert!(err.to_string().contains("at least 1"));
     }
 
     #[test]

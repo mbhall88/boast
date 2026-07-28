@@ -21,7 +21,10 @@ pub enum KeyRequirement {
     Required { env_var: &'static str },
 }
 
-pub trait Provider {
+/// `Sync`: the orchestrator (see [`crate::orchestrator`]) fetches through a
+/// shared `&dyn Provider` from multiple threads at once (bounded, one per
+/// host), so every Provider must be safe to call concurrently.
+pub trait Provider: Sync {
     /// Stable short name recorded in Snapshots (e.g. "openalex").
     fn name(&self) -> &'static str;
 

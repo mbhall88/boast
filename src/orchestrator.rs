@@ -16,12 +16,11 @@ use crate::model::{FetchResult, Identity, Outcome, Project, Snapshot};
 use crate::provider::Provider;
 use crate::transport::Transport;
 
-/// Worker threads never exceed this, regardless of how many distinct hosts
-/// or Identities a Project has — jobs queue up per host rather than one
-/// thread being spawned per job (ADR-0007's "bounded" requirement). The
-/// current default registry only ever has ~11 hosts, so this is mostly a
-/// safety ceiling for a future larger set of Providers.
-const MAX_CONCURRENT_HOSTS: usize = 8;
+/// Default cap on worker threads (see `run_with_concurrency`), and what
+/// `run` and the CLI's `-j`/`--threads` default to. The current default
+/// Provider registry only ever has ~11 hosts, so this is mostly a safety
+/// ceiling for a future larger set of Providers, not a real-world limit.
+pub const DEFAULT_CONCURRENCY: usize = 8;
 
 /// One Provider×Identity fetch to perform. Built once, up front, so the job
 /// list's order — identity-major, provider-minor, same as the old nested
@@ -32,12 +31,35 @@ struct Job<'a> {
     canonical: String,
 }
 
-/// Fetch every applicable Provider for every Identity and return a Snapshot.
+/// Fetch every applicable Provider for every Identity and return a Snapshot,
+/// using the default concurrency cap ([`DEFAULT_CONCURRENCY`]). See
+/// [`run_with_concurrency`] to tune it.
 pub fn run(
     project: &Project,
     providers: &[Box<dyn Provider>],
     transport: &dyn Transport,
 ) -> Snapshot {
+    run_with_concurrency(project, providers, transport, DEFAULT_CONCURRENCY)
+}
+
+/// Fetch every applicable Provider for every Identity and return a Snapshot.
+///
+/// `max_concurrent_hosts` caps how many distinct hosts are fetched from at
+/// once — it never allows more than one request in flight against the *same*
+/// host, no matter how high it's set (ADR-0007). Raising it past the number
+/// of hosts a Project actually touches (at most the size of the Provider
+/// registry — ~11 by default) buys nothing: there's no further axis to
+/// parallelise on. Lowering it (down to `1`, fully sequential) is the
+/// meaningful direction to tune, e.g. to open fewer simultaneous connections
+/// on a constrained network. `0` is treated as `1`, since nothing would ever
+/// run otherwise.
+pub fn run_with_concurrency(
+    project: &Project,
+    providers: &[Box<dyn Provider>],
+    transport: &dyn Transport,
+    max_concurrent_hosts: usize,
+) -> Snapshot {
+    let max_concurrent_hosts = max_concurrent_hosts.max(1);
     let mut jobs: Vec<Job> = Vec::new();
     for identity in &project.identities {
         let canonical = identity.canonical();
@@ -78,7 +100,7 @@ pub fn run(
     let queues: Mutex<VecDeque<VecDeque<usize>>> = Mutex::new(host_queues.into_iter().collect());
 
     std::thread::scope(|scope| {
-        for _ in 0..host_count.min(MAX_CONCURRENT_HOSTS) {
+        for _ in 0..host_count.min(max_concurrent_hosts) {
             scope.spawn(|| {
                 loop {
                     let Some(queue) = queues.lock().unwrap().pop_front() else {
@@ -437,17 +459,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn concurrency_is_bounded_even_with_more_hosts_than_the_cap() {
-        // More distinct hosts than MAX_CONCURRENT_HOSTS, all on one Identity
-        // so every job is immediately runnable — this is the shape that
-        // would spawn unbounded threads if the cap weren't enforced.
+    /// 12 single-use, distinctly-named `CountingProvider`s sharing one
+    /// `active`/`peak` pair, all supporting the one Identity in `project()` —
+    /// every job is immediately runnable, the shape that would spawn
+    /// unbounded threads if a cap weren't enforced.
+    fn many_counting_providers(
+        active: &Arc<AtomicUsize>,
+        peak: &Arc<AtomicUsize>,
+    ) -> Vec<Box<dyn Provider>> {
         const NAMES: [&str; 12] = [
             "h0", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8", "h9", "h10", "h11",
         ];
-        let active = Arc::new(AtomicUsize::new(0));
-        let peak = Arc::new(AtomicUsize::new(0));
-        let providers: Vec<Box<dyn Provider>> = NAMES
+        NAMES
             .iter()
             .map(|&name| {
                 Box::new(CountingProvider {
@@ -456,20 +479,64 @@ mod tests {
                     peak: peak.clone(),
                 }) as Box<dyn Provider>
             })
-            .collect();
+            .collect()
+    }
+
+    #[test]
+    fn concurrency_is_bounded_even_with_more_hosts_than_the_cap() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let providers = many_counting_providers(&active, &peak);
         let t = MockTransport::new();
 
         let snap = run(&project(), &providers, &t);
 
-        assert_eq!(snap.results.len(), NAMES.len());
+        assert_eq!(snap.results.len(), providers.len());
         let observed_peak = peak.load(Ordering::SeqCst);
         assert!(
-            observed_peak <= MAX_CONCURRENT_HOSTS,
-            "peak concurrency {observed_peak} exceeded the bound of {MAX_CONCURRENT_HOSTS}"
+            observed_peak <= DEFAULT_CONCURRENCY,
+            "peak concurrency {observed_peak} exceeded the default bound of {DEFAULT_CONCURRENCY}"
         );
         assert!(
             observed_peak >= 2,
             "sanity check: expected some real concurrency, saw peak {observed_peak}"
         );
+    }
+
+    #[test]
+    fn threads_flag_lowers_the_concurrency_cap_below_the_default() {
+        // Same shape as the test above, but with `max_concurrent_hosts`
+        // pinned to 1 — proving the knob actually throttles concurrency
+        // (the "go down" direction the CLI's -j/--threads exists for), not
+        // just that the built-in default happens to be small already.
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let providers = many_counting_providers(&active, &peak);
+        let t = MockTransport::new();
+
+        let snap = run_with_concurrency(&project(), &providers, &t, 1);
+
+        assert_eq!(snap.results.len(), providers.len());
+        assert_eq!(
+            peak.load(Ordering::SeqCst),
+            1,
+            "max_concurrent_hosts=1 must fully serialize, even across distinct hosts"
+        );
+    }
+
+    #[test]
+    fn zero_max_concurrent_hosts_is_treated_as_one_rather_than_hanging() {
+        // A worker count computed as `host_count.min(0)` would spawn no
+        // threads at all, and every job would sit in its queue forever —
+        // this pins that `0` is coerced to `1` instead.
+        let providers: Vec<Box<dyn Provider>> = vec![Box::new(SlowProvider {
+            name: "only",
+            delay: Duration::from_millis(0),
+        })];
+        let t = MockTransport::new();
+
+        let snap = run_with_concurrency(&project(), &providers, &t, 0);
+
+        assert_eq!(snap.results.len(), 1);
     }
 }

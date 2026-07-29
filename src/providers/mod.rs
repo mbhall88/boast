@@ -12,7 +12,7 @@ pub mod openalex;
 pub mod pypi;
 pub mod wikipedia;
 
-use crate::model::Category;
+use crate::model::{Category, Identity, PaperId};
 use crate::provider::{KeyRequirement, Provider};
 use crate::report::CATEGORY_ORDER;
 
@@ -37,6 +37,19 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
         Box::new(pypi::Pypi),
         Box::new(homebrew::Homebrew),
     ]
+}
+
+/// How many default Providers fetch metrics for a Paper Identity — the
+/// per-work request cost `boast init --orcid` warns about before expanding a
+/// large record. Computed from the real registry (never hard-coded), so the
+/// stderr warning, the generated Manifest's header, and this count can never
+/// drift apart.
+pub fn paper_provider_count() -> usize {
+    let sample = Identity::Paper(PaperId::Doi("10.0/0".to_string()));
+    default_providers()
+        .iter()
+        .filter(|p| p.supports(&sample))
+        .count()
 }
 
 /// Render the given registry (usually [`default_providers`]) as a table for
@@ -225,6 +238,12 @@ mod tests {
             .find(|l| l.contains("x"))
             .unwrap()
             .contains("yes"));
+    }
+
+    #[test]
+    fn paper_provider_count_matches_the_real_registrys_paper_supporting_providers() {
+        // openalex, crossref, dimensions, europe_pmc, wikipedia, altmetric.
+        assert_eq!(paper_provider_count(), 6);
     }
 
     #[test]

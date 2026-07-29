@@ -11,6 +11,7 @@ pub mod diff;
 pub mod manifest;
 pub mod model;
 pub mod orchestrator;
+pub mod orcid;
 pub mod provider;
 pub mod providers;
 pub mod report;
@@ -18,6 +19,6 @@ pub mod rollup;
 pub mod transport;
 
 pub use model::{
-    Category, FetchResult, Identity, Metric, MetricValue, Outcome, PackageId, PaperId,
+    Category, FetchResult, Identity, Metric, MetricValue, OrcidId, Outcome, PackageId, PaperId,
     PaperMetadata, Project, Registry, RepoHost, RepoId, Snapshot, Window,
 };

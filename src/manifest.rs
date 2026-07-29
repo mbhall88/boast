@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Identity, IdentityError, Project};
+use crate::model::{Identity, IdentityError, PaperId, Project};
 
 /// A Manifest is one or more Projects, each its own `[[project]]` TOML table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,6 +73,21 @@ impl Manifest {
                 identities: identities.iter().map(|id| id.canonical()).collect(),
                 topic: topic.map(str::to_string),
             }],
+        }
+    }
+
+    /// Build a Manifest from ORCID-expanded Paper Identities, one Project per
+    /// work (ADR-0006) — `init --orcid`'s counterpart to `from_identities`'s
+    /// single Project.
+    pub fn from_orcid_works(works: &[PaperId], topic: Option<&str>) -> Manifest {
+        Manifest {
+            projects: works
+                .iter()
+                .map(|id| ManifestProject {
+                    identities: vec![Identity::Paper(id.clone()).canonical()],
+                    topic: topic.map(str::to_string),
+                })
+                .collect(),
         }
     }
 }
@@ -207,6 +222,32 @@ mod tests {
 
         let project = parsed.projects[0].to_project(0).unwrap();
         assert_eq!(project.identities, identities);
+    }
+
+    #[test]
+    fn from_orcid_works_writes_one_project_per_work() {
+        let works = vec![
+            PaperId::Doi("10.1/x".into()),
+            PaperId::Pmid("31234567".into()),
+        ];
+        let manifest = Manifest::from_orcid_works(&works, Some("bioinformatics"));
+        assert_eq!(manifest.projects.len(), 2);
+        assert_eq!(
+            manifest.projects[0].identities,
+            vec!["doi:10.1/x".to_string()]
+        );
+        assert_eq!(
+            manifest.projects[1].identities,
+            vec!["pmid:31234567".to_string()]
+        );
+        assert_eq!(
+            manifest.projects[1].topic.as_deref(),
+            Some("bioinformatics")
+        );
+
+        let toml_str = manifest.to_toml_string().unwrap();
+        let parsed = Manifest::parse(&toml_str).unwrap();
+        assert_eq!(parsed, manifest);
     }
 
     #[test]

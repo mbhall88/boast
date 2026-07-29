@@ -381,8 +381,83 @@ pub enum IdentityError {
     UnknownRegistry(String),
     #[error("conda package '{0}' must be 'channel/name', e.g. 'conda-forge/xtensor' or 'bioconda/samtools'")]
     CondaChannelRequired(String),
+    #[error(
+        "ORCID {0} identifies a researcher, not a measurable work. Run `boast init --orcid {0}` \
+         to expand it into a manifest, then `boast about manifest.toml`"
+    )]
+    IsOrcid(OrcidId),
     #[error("empty identifier")]
     Empty,
+}
+
+/// A researcher's ORCID iD (e.g. `0000-0002-1825-0097`) — not an Identity
+/// (ADR-0006): it identifies a *researcher*, never a measurable piece of
+/// work. Recognised by [`Identity::parse`] solely so `boast about orcid:…`
+/// can be refused with a pointer to `boast init --orcid`, instead of falling
+/// into the generic "could not recognise" catch-all; also used directly to
+/// validate `init --orcid`'s own CLI values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrcidId(String);
+
+impl std::fmt::Display for OrcidId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl OrcidId {
+    /// Parse a bare `0000-0002-1825-0097`, `orcid:`-prefixed, or
+    /// `https://orcid.org/...` ORCID iD. Validates the four-groups-of-four
+    /// shape (the last character may be the ISO 7064 checksum digit `X`) but
+    /// not the checksum itself — recognising the shape is all any caller
+    /// needs this for.
+    pub fn parse(input: &str) -> Result<OrcidId, IdentityError> {
+        let s = input.trim().trim_end_matches('/');
+        if s.is_empty() {
+            return Err(IdentityError::Empty);
+        }
+        let mut rest = s;
+        for scheme in ["https://", "http://"] {
+            rest = rest.strip_prefix(scheme).unwrap_or(rest);
+        }
+        rest = rest.strip_prefix("www.").unwrap_or(rest);
+        rest = rest.strip_prefix("orcid.org/").unwrap_or(rest);
+        rest = rest.strip_prefix("orcid:").unwrap_or(rest);
+        orcid_shape(rest).ok_or_else(|| IdentityError::Unrecognised(input.to_string()))
+    }
+}
+
+/// Validate the `XXXX-XXXX-XXXX-XXXY` ORCID iD shape (`Y` a digit or the
+/// checksum character `X`), normalising the checksum to uppercase.
+fn orcid_shape(s: &str) -> Option<OrcidId> {
+    let groups: Vec<&str> = s.split('-').collect();
+    if groups.len() != 4 {
+        return None;
+    }
+    for g in &groups[..3] {
+        if g.len() != 4 || !g.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+    }
+    let last = groups[3];
+    if last.len() != 4 {
+        return None;
+    }
+    let (digits, checksum) = last.split_at(3);
+    if !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let checksum_char = checksum.chars().next().unwrap();
+    if !checksum_char.is_ascii_digit() && !checksum_char.eq_ignore_ascii_case(&'X') {
+        return None;
+    }
+    Some(OrcidId(format!(
+        "{}-{}-{}-{digits}{}",
+        groups[0],
+        groups[1],
+        groups[2],
+        checksum_char.to_ascii_uppercase()
+    )))
 }
 
 impl Identity {
@@ -418,6 +493,17 @@ impl Identity {
 
         if let Some(rest) = s.strip_prefix("doi:").or_else(|| s.strip_prefix("DOI:")) {
             return Ok(Identity::Paper(PaperId::Doi(rest.trim().to_string())));
+        }
+
+        // ORCID (bare, `orcid:`-prefixed, or an orcid.org URL) is refused
+        // with a pointer to `init --orcid`, not treated as an Identity
+        // (ADR-0006). Checked before the generic `registry:name` package
+        // match below (which would otherwise treat `orcid:...` as an
+        // unknown-registry package) and before the bare owner/name repo
+        // fallback (which would otherwise treat an orcid.org URL's host as a
+        // GitHub owner).
+        if let Ok(orcid) = OrcidId::parse(s) {
+            return Err(IdentityError::IsOrcid(orcid));
         }
 
         // https://doi.org/10.x or doi.org/10.x
@@ -681,6 +767,62 @@ mod tests {
             Identity::parse("pypi:foo/bar"),
             Ok(Identity::Package(_))
         ));
+    }
+
+    #[test]
+    fn orcid_id_parses_bare_prefixed_and_url_forms() {
+        let want = OrcidId("0000-0002-1825-0097".into());
+        for input in [
+            "0000-0002-1825-0097",
+            "orcid:0000-0002-1825-0097",
+            "https://orcid.org/0000-0002-1825-0097",
+            "http://orcid.org/0000-0002-1825-0097",
+            "orcid.org/0000-0002-1825-0097",
+            "https://orcid.org/0000-0002-1825-0097/",
+        ] {
+            assert_eq!(OrcidId::parse(input).unwrap(), want, "{input}");
+        }
+    }
+
+    #[test]
+    fn orcid_id_accepts_the_x_checksum_character_in_either_case() {
+        assert_eq!(
+            OrcidId::parse("0000-0002-1825-009X").unwrap(),
+            OrcidId("0000-0002-1825-009X".into())
+        );
+        assert_eq!(
+            OrcidId::parse("0000-0002-1825-009x").unwrap(),
+            OrcidId("0000-0002-1825-009X".into())
+        );
+    }
+
+    #[test]
+    fn orcid_id_rejects_the_wrong_shape() {
+        for input in [
+            "0000-0002-1825",
+            "0000-0002-1825-00979",
+            "0000-0002-1825-00Y9",
+            "not-an-orcid-value",
+            "",
+        ] {
+            assert!(OrcidId::parse(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn identity_parse_refuses_orcid_in_every_recognised_form() {
+        for input in [
+            "0000-0002-1825-0097",
+            "orcid:0000-0002-1825-0097",
+            "https://orcid.org/0000-0002-1825-0097",
+        ] {
+            let err = Identity::parse(input).unwrap_err();
+            assert!(matches!(err, IdentityError::IsOrcid(_)), "{input}");
+            assert!(err.to_string().contains("identifies a researcher"));
+            assert!(err
+                .to_string()
+                .contains("boast init --orcid 0000-0002-1825-0097"));
+        }
     }
 
     #[test]

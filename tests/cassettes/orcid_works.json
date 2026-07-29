@@ -1,0 +1,62 @@
+{
+  "group": [
+    {
+      "external-ids": {
+        "external-id": [
+          { "external-id-type": "issn", "external-id-value": "0264-3561", "external-id-relationship": "part-of" },
+          { "external-id-type": "doi", "external-id-value": "10.5555/12345680", "external-id-relationship": "self" }
+        ]
+      },
+      "work-summary": [
+        {
+          "title": { "title": { "value": "A Methodology for the Emulation of Architecture" } },
+          "type": "journal-article",
+          "publication-date": { "year": { "value": "2012" } }
+        }
+      ]
+    },
+    {
+      "external-ids": {
+        "external-id": [
+          { "external-id-type": "doi", "external-id-value": "10.5555/999900001111", "external-id-relationship": "self" },
+          { "external-id-type": "pmid", "external-id-value": "26151137", "external-id-relationship": "self" }
+        ]
+      },
+      "work-summary": [
+        {
+          "title": { "title": { "value": "Deconstructing the Web Browser" } },
+          "type": "journal-article",
+          "publication-date": { "year": { "value": "2015" } }
+        }
+      ]
+    },
+    {
+      "external-ids": {
+        "external-id": [
+          { "external-id-type": "pmid", "external-id-value": "31234567", "external-id-relationship": "self" }
+        ]
+      },
+      "work-summary": [
+        {
+          "title": { "title": { "value": "On the Investigation of Byzantine Fault Tolerance" } },
+          "type": "journal-article",
+          "publication-date": { "year": { "value": "2018" } }
+        }
+      ]
+    },
+    {
+      "external-ids": {
+        "external-id": [
+          { "external-id-type": "issn", "external-id-value": "0264-3561", "external-id-relationship": "part-of" }
+        ]
+      },
+      "work-summary": [
+        {
+          "title": { "title": { "value": "A Poster on Nothing in Particular" } },
+          "type": "conference-poster",
+          "publication-date": { "year": { "value": "2020" } }
+        }
+      ]
+    }
+  ]
+}

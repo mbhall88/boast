@@ -260,7 +260,9 @@ pub fn render_unidentified_block(unidentified: &[&OrcidWork]) -> String {
     out
 }
 
-fn plural(n: usize) -> &'static str {
+/// `""` for `1`, `"s"` otherwise — shared by every "N work(s)" message across
+/// this module and `cli.rs`'s `--orcid` glue, so they can't drift apart.
+pub(crate) fn plural(n: usize) -> &'static str {
     if n == 1 {
         ""
     } else {

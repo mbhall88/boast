@@ -121,6 +121,16 @@ pub struct IdentitySourceArgs {
     pub from_file: Vec<PathBuf>,
 }
 
+impl IdentitySourceArgs {
+    /// True if `--repo`, `--package`, or `--from-file` were given (positionals
+    /// excluded — callers care about those separately). Shared by
+    /// `manifest_positional`'s "nothing but a bare Manifest path" check and
+    /// `run_init_orcid`'s "nothing but `--orcid`" exclusivity check.
+    fn has_flag_sources(&self) -> bool {
+        !self.repos.is_empty() || !self.packages.is_empty() || !self.from_file.is_empty()
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct AboutArgs {
     #[command(flatten)]
@@ -368,11 +378,7 @@ fn run_about(args: AboutArgs) -> i32 {
 /// mixing a Manifest with ad-hoc identities on the same run is ambiguous.
 fn manifest_positional(args: &AboutArgs) -> Option<&std::path::Path> {
     let sources = &args.sources;
-    if sources.targets.len() != 1
-        || !sources.repos.is_empty()
-        || !sources.packages.is_empty()
-        || !sources.from_file.is_empty()
-    {
+    if sources.targets.len() != 1 || sources.has_flag_sources() {
         return None;
     }
     let path = std::path::Path::new(&sources.targets[0]);
@@ -580,11 +586,7 @@ fn run_init(args: InitArgs) -> i32 {
 /// header, from the one shared count `paper_provider_count` computes.
 fn run_init_orcid(args: &InitArgs) -> i32 {
     let sources = &args.sources;
-    if !sources.targets.is_empty()
-        || !sources.repos.is_empty()
-        || !sources.packages.is_empty()
-        || !sources.from_file.is_empty()
-    {
+    if !sources.targets.is_empty() || sources.has_flag_sources() {
         tracing::error!(
             "--orcid cannot be combined with other identity sources (positionals, --repo, \
              --package, --from-file)"
@@ -627,7 +629,7 @@ fn run_init_orcid(args: &InitArgs) -> i32 {
             "orcid:{id}: {this_total} work{ws} in record; {this_identified} have a DOI/PMID and \
              will be written to {output}, {this_skipped} were skipped (no DOI or PMID — not \
              measurable).",
-            ws = if this_total == 1 { "" } else { "s" },
+            ws = orcid::plural(this_total),
             output = args.output.display(),
         );
         total += this_total;
@@ -652,7 +654,7 @@ fn run_init_orcid(args: &InitArgs) -> i32 {
         "running `boast about` over {} work{ws} ≈ {estimated_requests} requests across \
          {provider_count} Providers",
         identified.len(),
-        ws = if identified.len() == 1 { "" } else { "s" },
+        ws = orcid::plural(identified.len()),
     );
 
     let manifest = Manifest::from_orcid_works(&identified, args.topic.as_deref());
@@ -1192,6 +1194,14 @@ pmid:31234567
         let Command::About(a) = cli.command else {
             panic!("expected About")
         };
+        // `run_about` only surfaces its exit code (2, same as any other bad
+        // identifier) — the dedicated-vs-generic distinction lives in which
+        // `IdentityError` variant `parse_identities` hit internally, so assert
+        // on that directly rather than on the exit code alone.
+        assert!(matches!(
+            Identity::parse(&a.sources.targets[0]),
+            Err(IdentityError::IsOrcid(_))
+        ));
         assert_eq!(run_about(a), 2);
     }
 }

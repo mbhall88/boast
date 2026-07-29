@@ -6,12 +6,16 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use time::macros::format_description;
+use time::OffsetDateTime;
 
 use crate::diff;
 use crate::manifest::Manifest;
-use crate::model::{Identity, IdentityError, PackageId, Project, RepoId, Snapshot};
+use crate::model::{Identity, IdentityError, OrcidId, PackageId, Project, RepoId, Snapshot};
 use crate::orchestrator;
-use crate::providers::{default_providers, default_providers_with_topic, render_providers};
+use crate::orcid::{self, OrcidWork};
+use crate::providers::{
+    default_providers, default_providers_with_topic, paper_provider_count, render_providers,
+};
 use crate::report::{render_markdown, render_prose, render_terminal};
 use crate::transport::{RetryingTransport, UreqTransport};
 
@@ -57,7 +61,8 @@ pub enum Command {
     /// key requirement. Never touches the network.
     Providers,
 
-    /// Write a Manifest TOML file from identifiers, without fetching.
+    /// Write a Manifest TOML file from identifiers, without fetching — unless
+    /// `--orcid` expands a researcher's record, which does (see its own help).
     Init(InitArgs),
 }
 
@@ -114,6 +119,16 @@ pub struct IdentitySourceArgs {
     /// ignored). Use `-` for stdin. Repeatable.
     #[arg(short = 'f', long = "from-file", value_name = "FILE")]
     pub from_file: Vec<PathBuf>,
+}
+
+impl IdentitySourceArgs {
+    /// True if `--repo`, `--package`, or `--from-file` were given (positionals
+    /// excluded — callers care about those separately). Shared by
+    /// `manifest_positional`'s "nothing but a bare Manifest path" check and
+    /// `run_init_orcid`'s "nothing but `--orcid`" exclusivity check.
+    fn has_flag_sources(&self) -> bool {
+        !self.repos.is_empty() || !self.packages.is_empty() || !self.from_file.is_empty()
+    }
 }
 
 #[derive(Debug, Args)]
@@ -186,6 +201,22 @@ pub struct InitArgs {
         value_name = "FILE"
     )]
     pub output: PathBuf,
+
+    /// Expand a researcher's ORCID iD (bare, `orcid:`-prefixed, or an
+    /// orcid.org URL) into a Manifest of every work with a DOI or PMID, one
+    /// Project per work (ADR-0006; repeatable). **Performs a network
+    /// fetch** — unlike the rest of `init`, which is otherwise offline.
+    /// Exclusive with positionals/`--repo`/`--package`/`--from-file`: an
+    /// ORCID expansion has no defensible answer to "which of these works
+    /// does that repo belong to?"
+    #[arg(short = 'O', long = "orcid", value_name = "ORCID")]
+    pub orcid: Vec<String>,
+
+    /// With `--orcid`, also list works with neither a DOI nor a PMID (and so
+    /// were skipped) as commented-out `[[project]]` blocks you can fill in
+    /// by hand. Off by default: most ORCID records carry many such works.
+    #[arg(short = 'u', long = "include-unidentified")]
+    pub include_unidentified: bool,
 }
 
 /// Recognised global flags — all valueless — skipped when locating the
@@ -347,11 +378,7 @@ fn run_about(args: AboutArgs) -> i32 {
 /// mixing a Manifest with ad-hoc identities on the same run is ambiguous.
 fn manifest_positional(args: &AboutArgs) -> Option<&std::path::Path> {
     let sources = &args.sources;
-    if sources.targets.len() != 1
-        || !sources.repos.is_empty()
-        || !sources.packages.is_empty()
-        || !sources.from_file.is_empty()
-    {
+    if sources.targets.len() != 1 || sources.has_flag_sources() {
         return None;
     }
     let path = std::path::Path::new(&sources.targets[0]);
@@ -529,6 +556,13 @@ fn save_manifest(
 /// Write a Manifest TOML file from identifiers, without fetching. Lets you
 /// build up a Manifest incrementally before ever running `about`.
 fn run_init(args: InitArgs) -> i32 {
+    if !args.orcid.is_empty() {
+        return run_init_orcid(&args);
+    }
+    if args.include_unidentified {
+        tracing::warn!("--include-unidentified has no effect without --orcid");
+    }
+
     let identities = match parse_identities(&args.sources) {
         Ok(ids) => ids,
         Err(code) => return code,
@@ -543,6 +577,115 @@ fn run_init(args: InitArgs) -> i32 {
         Ok(()) => 0,
         Err(code) => code,
     }
+}
+
+/// `init --orcid`: expand every given ORCID iD's works (ADR-0006) into a
+/// Manifest, one Project per DOI/PMID-bearing work. A network path — unlike
+/// the rest of `init` — so the caution about its cost (per-work Provider
+/// fan-out) is surfaced both here on stderr and in the generated file's own
+/// header, from the one shared count `paper_provider_count` computes.
+fn run_init_orcid(args: &InitArgs) -> i32 {
+    let sources = &args.sources;
+    if !sources.targets.is_empty() || sources.has_flag_sources() {
+        tracing::error!(
+            "--orcid cannot be combined with other identity sources (positionals, --repo, \
+             --package, --from-file)"
+        );
+        return 2;
+    }
+
+    let mut orcids = Vec::with_capacity(args.orcid.len());
+    for value in &args.orcid {
+        match OrcidId::parse(value) {
+            Ok(id) => orcids.push(id),
+            Err(_) => {
+                tracing::error!(
+                    "'{value}' is not a valid ORCID iD (expected e.g. 0000-0002-1825-0097)"
+                );
+                return 2;
+            }
+        }
+    }
+
+    let transport = RetryingTransport::new(UreqTransport::new());
+    let provider_count = paper_provider_count();
+
+    let mut identified = Vec::new();
+    let mut unidentified: Vec<OrcidWork> = Vec::new();
+    let mut total = 0usize;
+
+    for id in &orcids {
+        let expansion = match orcid::expand(id, &transport) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::error!("{e}");
+                return 2;
+            }
+        };
+        let this_total = expansion.works.len();
+        let this_identified = expansion.identified().count();
+        let this_skipped = this_total - this_identified;
+        tracing::warn!(
+            "orcid:{id}: {this_total} work{ws} in record; {this_identified} have a DOI/PMID and \
+             will be written to {output}, {this_skipped} were skipped (no DOI or PMID — not \
+             measurable).",
+            ws = orcid::plural(this_total),
+            output = args.output.display(),
+        );
+        total += this_total;
+        for work in expansion.works {
+            match work {
+                OrcidWork::Identified { id } => identified.push(id),
+                unident => unidentified.push(unident),
+            }
+        }
+    }
+
+    if identified.is_empty() {
+        tracing::error!(
+            "no works with a DOI or PMID found across {} ORCID record(s)",
+            orcids.len()
+        );
+        return 2;
+    }
+
+    let estimated_requests = identified.len() * provider_count;
+    tracing::warn!(
+        "running `boast about` over {} work{ws} ≈ {estimated_requests} requests across \
+         {provider_count} Providers",
+        identified.len(),
+        ws = orcid::plural(identified.len()),
+    );
+
+    let manifest = Manifest::from_orcid_works(&identified, args.topic.as_deref());
+    let toml_str = match manifest.to_toml_string() {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("could not serialise manifest: {e}");
+            return 2;
+        }
+    };
+
+    let mut out = orcid::render_header(
+        &orcids,
+        total,
+        unidentified.len(),
+        OffsetDateTime::now_utc(),
+        provider_count,
+    );
+    if args.include_unidentified && !unidentified.is_empty() {
+        let refs: Vec<&OrcidWork> = unidentified.iter().collect();
+        out.push_str(&orcid::render_unidentified_block(&refs));
+        out.push('\n');
+    }
+    out.push_str(&toml_str);
+
+    if let Err(e) = std::fs::write(&args.output, out) {
+        tracing::error!("could not write manifest {}: {e}", args.output.display());
+        return 2;
+    }
+    println!("Manifest written to {}", args.output.display());
+    0
 }
 
 /// Read and parse a stored Snapshot JSON file. `Err` carries the CLI exit
@@ -955,6 +1098,110 @@ pmid:31234567
         let Command::About(a) = cli.command else {
             panic!("expected About")
         };
+        assert_eq!(run_about(a), 2);
+    }
+
+    #[test]
+    fn orcid_flag_accepts_short_and_long_form_and_is_repeatable() {
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "init",
+            "-O",
+            "0000-0002-1825-0097",
+            "--orcid",
+            "0000-0001-2345-6789",
+        ]))
+        .unwrap();
+        let Command::Init(i) = cli.command else {
+            panic!("expected Init")
+        };
+        assert_eq!(
+            i.orcid,
+            vec![
+                "0000-0002-1825-0097".to_string(),
+                "0000-0001-2345-6789".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn include_unidentified_flag_accepts_short_and_long_form() {
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "init",
+            "--orcid",
+            "0000-0002-1825-0097",
+            "-u",
+        ]))
+        .unwrap();
+        let Command::Init(i) = cli.command else {
+            panic!("expected Init")
+        };
+        assert!(i.include_unidentified);
+
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "init",
+            "--orcid",
+            "0000-0002-1825-0097",
+            "--include-unidentified",
+        ]))
+        .unwrap();
+        let Command::Init(i) = cli.command else {
+            panic!("expected Init")
+        };
+        assert!(i.include_unidentified);
+    }
+
+    #[test]
+    fn about_cannot_structurally_receive_an_orcid_flag() {
+        // `--orcid` lives only on `InitArgs`, not the shared `IdentitySourceArgs`
+        // (ADR-0006) — `about` must reject it as an unknown argument.
+        let err = Cli::try_parse_from(norm(&["boast", "about", "--orcid", "0000-0002-1825-0097"]))
+            .unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("unexpected"));
+    }
+
+    #[test]
+    fn init_orcid_combined_with_other_identity_sources_is_rejected() {
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "init",
+            "--orcid",
+            "0000-0002-1825-0097",
+            "--repo",
+            "owner/name",
+        ]))
+        .unwrap();
+        let Command::Init(i) = cli.command else {
+            panic!("expected Init")
+        };
+        assert_eq!(run_init(i), 2);
+    }
+
+    #[test]
+    fn init_rejects_a_malformed_orcid_value() {
+        let cli = Cli::try_parse_from(norm(&["boast", "init", "--orcid", "not-an-orcid"])).unwrap();
+        let Command::Init(i) = cli.command else {
+            panic!("expected Init")
+        };
+        assert_eq!(run_init(i), 2);
+    }
+
+    #[test]
+    fn about_orcid_identifier_is_refused_with_the_dedicated_actionable_error_not_the_catch_all() {
+        let cli = Cli::try_parse_from(norm(&["boast", "0000-0002-1825-0097"])).unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        // `run_about` only surfaces its exit code (2, same as any other bad
+        // identifier) — the dedicated-vs-generic distinction lives in which
+        // `IdentityError` variant `parse_identities` hit internally, so assert
+        // on that directly rather than on the exit code alone.
+        assert!(matches!(
+            Identity::parse(&a.sources.targets[0]),
+            Err(IdentityError::IsOrcid(_))
+        ));
         assert_eq!(run_about(a), 2);
     }
 }

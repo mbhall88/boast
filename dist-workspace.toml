@@ -1,0 +1,41 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "homebrew"]
+# Target platforms to build apps for (Rust target-triple syntax). musl (not
+# gnu) on Linux to keep every binary statically linked (ADR-0004); riscv64/
+# ppc64le/s390x excluded because the rustls crypto backend (`ring`, C+asm)
+# sets the real ceiling on exotic targets, not this project's dependency
+# hygiene — see ADR-0004 and issue #41.
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-musl", "armv7-unknown-linux-musleabihf", "x86_64-apple-darwin", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Where to host releases
+hosting = "github"
+# Whether to install an updater program
+install-updater = false
+# A GitHub repo dist should publish the Homebrew formula to (must already
+# exist, with the release token given write access — see issue #41).
+tap = "mbhall88/homebrew-tap"
+# Publish jobs to run in CI: dist's builtin Homebrew publish, plus two custom
+# reusable workflows (see .github/workflows/publish-crates.yml and
+# publish-docker.yml) for crates.io and the ghcr.io Docker image, neither of
+# which dist has a builtin job for.
+publish-jobs = ["homebrew", "./publish-crates", "./publish-docker"]
+# dist grants every custom publish job `id-token: write` + `packages: write`
+# by default. Neither custom job here does OIDC federation (crates.io auth is
+# a static token; ghcr.io auth is via the ambient GITHUB_TOKEN), and
+# `id-token: write` being granted with no corresponding OIDC use caused
+# GitHub to reject the whole workflow at parse time (silent zero-job
+# "startup_failure", not a normal job failure) — see issue #41. Override to
+# only what each job actually needs.
+[dist.github-custom-job-permissions]
+publish-crates = { contents = "read" }
+publish-docker = { contents = "read", packages = "write" }

@@ -6,6 +6,7 @@ rust-version = "1.97"
 description = "A reproducible research-impact aggregator: gather downloads, citations, stars, and field-standing for a research tool or paper into dated, quotable snapshots."
 license = "MIT"
 repository = "https://github.com/mbhall88/boast"
+homepage = "https://github.com/mbhall88/boast"
 readme = "README.md"
 keywords = ["bibliometrics", "citations", "research", "metrics", "impact"]
 categories = ["command-line-utilities", "science"]
@@ -33,3 +34,8 @@ ureq = { version = "3.3.0", default-features = false, features = ["rustls", "gzi
 [profile.release]
 strip = true
 lto = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

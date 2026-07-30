@@ -29,3 +29,13 @@ tap = "mbhall88/homebrew-tap"
 # publish-docker.yml) for crates.io and the ghcr.io Docker image, neither of
 # which dist has a builtin job for.
 publish-jobs = ["homebrew", "./publish-crates", "./publish-docker"]
+# dist grants every custom publish job `id-token: write` + `packages: write`
+# by default. Neither custom job here does OIDC federation (crates.io auth is
+# a static token; ghcr.io auth is via the ambient GITHUB_TOKEN), and
+# `id-token: write` being granted with no corresponding OIDC use caused
+# GitHub to reject the whole workflow at parse time (silent zero-job
+# "startup_failure", not a normal job failure) — see issue #41. Override to
+# only what each job actually needs.
+[dist.github-custom-job-permissions]
+publish-crates = { contents = "read" }
+publish-docker = { contents = "read", packages = "write" }

@@ -1,6 +1,6 @@
 # boast
 
-`boast about samtools`
+`boast about samtools/samtools`
 
 A reproducible research-impact aggregator. Point `boast` at a **Project** — a piece of
 research software identified by any of a code repository, distribution packages, and/or a

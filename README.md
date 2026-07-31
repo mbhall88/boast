@@ -69,6 +69,13 @@ Prebuilt binaries (Linux x86_64/aarch64/armv7 — all statically linked, musl �
 x86_64/aarch64, Windows x86_64) are attached to every [GitHub
 Release](https://github.com/mbhall88/boast/releases).
 
+## Tracking impact over time in CI
+
+[`docs/ci-snapshot-template.md`](./docs/ci-snapshot-template.md) is a copy-paste GitHub
+Actions workflow that runs `boast about` on a schedule, commits each Snapshot to your repo,
+and keeps a rolling `IMPACT.md` report up to date — so `boast diff` has real history to
+compare against with zero manual work.
+
 ## Design docs
 
 - [`CONTEXT.md`](./CONTEXT.md) — the domain glossary (Project, Provider, Metric, Snapshot, …)

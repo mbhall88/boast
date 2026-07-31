@@ -15,14 +15,16 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 export GITHUB_TOKEN=
 export ALTMETRIC_KEY=
 
+generated_header="<!--
+GENERATED FILE — do not edit by hand.
+Regenerate with docs/site/generate-reference.sh, run from the repo root.
+-->"
+
 providers_out=docs/site/src/reference/providers.md
 table=$(cargo run --quiet -- providers)
 
 cat > "$providers_out" <<EOF
-<!--
-GENERATED FILE — do not edit by hand.
-Regenerate with docs/site/generate-reference.sh, run from the repo root.
--->
+$generated_header
 
 # Providers reference
 
@@ -41,12 +43,17 @@ required key means that Provider reports every Metric as not-applicable until it
 EOF
 
 cli_out=docs/site/src/reference/cli.md
+top_help=$(cargo run --quiet -- --help)
+# Subcommands come straight out of `--help`'s own "Commands:" block (minus
+# clap's built-in `help`, which has nothing of its own worth a page) rather
+# than being hand-listed here — otherwise a new subcommand could ship
+# without ever getting a reference section, and this script's own drift
+# check would have nothing to catch it with.
+cmds=$(awk '/^Commands:/{f=1; next} /^$/{f=0} f{print $1}' <<<"$top_help" | grep -v '^help$')
+
 {
     cat <<EOF
-<!--
-GENERATED FILE — do not edit by hand.
-Regenerate with docs/site/generate-reference.sh, run from the repo root.
--->
+$generated_header
 
 # CLI reference
 
@@ -55,11 +62,11 @@ Every subcommand and flag, straight from \`--help\`.
 ## \`boast\`
 
 \`\`\`
-$(cargo run --quiet -- --help)
+$top_help
 \`\`\`
 EOF
 
-    for cmd in about render diff providers init; do
+    for cmd in $cmds; do
         cat <<EOF
 
 ## \`boast $cmd\`

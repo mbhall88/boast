@@ -16,7 +16,7 @@ commit and re-render, metrics that are never silently coerced to zero, and total
 never mix incompatible time windows.
 
 ```
-boast about samtools
+boast about samtools/samtools
 ```
 
 - **[Getting started](./getting-started.md)** — install boast and run your first Report.

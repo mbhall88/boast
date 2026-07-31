@@ -1,0 +1,21 @@
+# Summary
+
+[Introduction](./introduction.md)
+
+- [Getting started](./getting-started.md)
+- [Concepts](./concepts.md)
+- [Guides](./guides/index.md)
+  - [Measuring a paper](./guides/measuring-a-paper.md)
+  - [A tool with a repo and packages](./guides/repo-and-packages.md)
+  - [A researcher's whole publication record](./guides/orcid.md)
+  - [Automating snapshots in CI](./guides/ci-snapshots.md)
+- [Providers reference](./reference/providers.md)
+- [CLI reference](./reference/cli.md)
+- [Design decisions](./design/index.md)
+  - [0001 — Snapshot-centric architecture](./design/0001-snapshot-centric-architecture.md)
+  - [0002 — Metric honesty model](./design/0002-metric-honesty-model.md)
+  - [0003 — Data-source strategy and exclusions](./design/0003-data-source-strategy-and-exclusions.md)
+  - [0004 — No host-native dependencies](./design/0004-no-host-native-dependencies.md)
+  - [0005 — Provider notices in Reports, not logs](./design/0005-provider-notices-in-reports-not-logs.md)
+  - [0006 — ORCID expands to Identities, it is not one](./design/0006-orcid-expands-to-identities-it-is-not-one.md)
+  - [0007 — Parallel across hosts, serial within a host](./design/0007-parallel-across-hosts-serial-within-a-host.md)

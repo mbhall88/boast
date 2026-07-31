@@ -14,73 +14,24 @@ proposal — with reproducibility and honesty as first principles: dated, attrib
 Snapshots you can commit and re-render, metrics that are never silently coerced to zero, and
 totals that never mix incompatible time windows.
 
-## The idea in one command
-
-```
-boast about 10.1234/journal.xyz          # a bare paper — one-liner
-boast about --repo owner/tool \          # a full Project
-            --package conda:bioconda/tool \
-            10.1234/journal.xyz
-boast render snapshots/2026-07-16.json --format markdown
-boast diff  snapshots/2026-01.json snapshots/2026-07.json
-```
-
-## Installation
-
-### Homebrew (macOS/Linux)
-
-```
-brew install mbhall88/tap/boast
-```
-
-### Shell script (macOS/Linux)
-
-```
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mbhall88/boast/releases/latest/download/boast-installer.sh | sh
-```
-
-### PowerShell (Windows)
-
-```
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/mbhall88/boast/releases/latest/download/boast-installer.ps1 | iex"
-```
-
-### Docker
-
-```
-docker run --rm ghcr.io/mbhall88/boast:latest about 10.1234/journal.xyz
-```
-
-### cargo
+## Install
 
 ```
 cargo install boast --locked
 ```
 
-### From source
+Homebrew, a shell/PowerShell installer script, Docker, and prebuilt binaries are all
+covered on the [docs site](https://mbhall88.github.io/boast/getting-started.html), along
+with everything else: concepts, guides, the Providers and CLI reference, automating
+snapshots in CI, and the design decisions behind how boast works.
+
+## Try it
 
 ```
-git clone https://github.com/mbhall88/boast
-cd boast
-cargo install --path . --locked
+boast about --repo samtools/samtools \
+            --package conda:bioconda/samtools \
+            10.1371/journal.pbio.1002195
 ```
-
-Prebuilt binaries (Linux x86_64/aarch64/armv7 — all statically linked, musl — and macOS
-x86_64/aarch64, Windows x86_64) are attached to every [GitHub
-Release](https://github.com/mbhall88/boast/releases).
-
-## Tracking impact over time in CI
-
-[`docs/ci-snapshot-template.md`](./docs/ci-snapshot-template.md) is a copy-paste GitHub
-Actions workflow that runs `boast about` on a schedule, commits each Snapshot to your repo,
-and keeps a rolling `IMPACT.md` report up to date — so `boast diff` has real history to
-compare against with zero manual work.
-
-## Design docs
-
-- [`CONTEXT.md`](./CONTEXT.md) — the domain glossary (Project, Provider, Metric, Snapshot, …)
-- [`docs/adr/`](./docs/adr/) — architecture decision records
-- [`docs/spec/0001-boast-v1.md`](./docs/spec/0001-boast-v1.md) — the v1 spec
 
 ## License
 

@@ -1,0 +1,9 @@
+[book]
+title = "boast"
+description = "A reproducible research-impact aggregator"
+authors = ["Michael Hall"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/mbhall88/boast"

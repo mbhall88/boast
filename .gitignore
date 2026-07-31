@@ -9,5 +9,9 @@
 # Generated Snapshots (users commit their own where they want them)
 /snapshots/
 
+# mdBook build output (docs/site/generate-reference.sh regenerates src/reference/*.md,
+# which IS committed — this is just the rendered HTML)
+/docs/site/book/
+
 # OS / editor
 .DS_Store

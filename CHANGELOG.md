@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/mbhall88/boast/compare/0.1.0...0.1.1) (2026-07-31)
+
+
+### Bug Fixes
+
+* pin the Rust toolchain to stop release builds drifting from Cargo.toml's MSRV ([#53](https://github.com/mbhall88/boast/issues/53)) ([43e2d60](https://github.com/mbhall88/boast/commit/43e2d6099eef72a0bd2aa757990f9f9f4f60a384))
+
 ## 0.1.0 (2026-07-30)
 
 

@@ -50,6 +50,7 @@ jobs:
 
       - name: Install boast
         run: |
+          set -euo pipefail
           curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mbhall88/boast/releases/latest/download/boast-installer.sh | sh
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
@@ -73,16 +74,22 @@ jobs:
           ALTMETRIC_KEY: ${{ secrets.ALTMETRIC_KEY }}
 
       # `if: always()` so this and the commit step below still run even when
-      # the step above exited non-zero.
+      # the step above exited non-zero. `boast render` itself also exits 1
+      # for a Snapshot recording a `Failed` Outcome, so on a partial failure
+      # this step goes red too, alongside `boast about` above — expected,
+      # not a second problem: IMPACT.md is still written correctly (the
+      # FAILED row included, per ADR-0002) and still gets committed below.
       - name: Regenerate the rolling report
         if: always()
         run: |
+          set -euo pipefail
           newest=$(find snapshots -maxdepth 1 -name '*.json' | sort | tail -n1)
           boast render "$newest" --format markdown > IMPACT.md
 
       - name: Commit snapshot and report
         if: always()
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add snapshots IMPACT.md

@@ -5,22 +5,23 @@ about` on a schedule, commits the resulting Snapshot, and keeps a rolling Markdo
 up to date — so `boast diff` has real history to compare against with zero manual work.
 
 This is deliberately **YAML you copy and edit**, not a published Action or reusable
-workflow. Everyone adopting it customises something (the manifest path, the schedule, which
+workflow. Everyone adopting it customises something (the Manifest path, the schedule, which
 identities it covers), and a template invites that where a versioned Action would fight it.
 When a scheduled run fails at 3am it's almost always a rate limit or a network blip — plain
 YAML has no indirection to dig through to find out why.
 
 ## Prerequisites
 
-A [Manifest](../CONTEXT.md) describing the Project(s) you want to track, committed to the
-repo. Build one once with:
+A [Manifest](../CONTEXT.md) listing the single Project you want to track (see "Scope"
+below), committed to the repo. Build one once with:
 
 ```
 boast init --repo owner/name --package crates:name 10.1234/journal.xyz
 ```
 
-(or `boast init --orcid <ORCID iD>` to start from a researcher's publication record — see
-`boast init --help`). Commit the resulting `manifest.toml`.
+Commit the resulting `manifest.toml`. (`boast init --orcid <ORCID iD>` builds a Manifest too,
+but typically lists *many* Projects — one per publication — which this template's report step
+doesn't cover; see "Scope" below before using it here.)
 
 ## The workflow
 
@@ -98,8 +99,12 @@ jobs:
 - **Manifest path** — `manifest.toml` in the `boast about` step. Point it at wherever your
   Manifest lives if it isn't at the repo root.
 - **Snapshot directory** — `--snapshot-dir snapshots` (boast's own default). Snapshots are
-  named by boast itself (`YYYYMMDDTHHMMSSZ.json`) — already unique, already lexically
-  sortable, already carrying the as-of time, so nothing here needs to invent a naming scheme.
+  named by boast itself from the run timestamp (`YYYYMMDDTHHMMSSZ.json` when driven by bare
+  identifiers) — already unique, already lexically sortable, already carrying the as-of time.
+  Driven by a Manifest, as this template is, boast additionally suffixes the filename with
+  the Project's own identity (e.g. `20260301T030001Z-doi-10.1234-journal.xyz.json`) so that
+  multiple Projects sharing one Manifest never collide — still lexically sortable, just not a
+  bare timestamp.
 - **Report filename** — `IMPACT.md`, overwritten every run rather than timestamped. It's
   offline and deterministic (`boast render` never touches the network — see
   [ADR-0001](adr/0001-snapshot-centric-architecture.md)), so regenerating it is nearly free,
@@ -114,12 +119,27 @@ an easy thing to have picked up from a template that assumed the opposite.
 the entire point of this workflow — and you can't `diff` two of them without downloading
 both by hand first. A committed file has neither problem.
 
+### Scope: one Project per Manifest
+
+This template's "Regenerate the rolling report" step renders whichever Snapshot file sorts
+last — correct as long as your Manifest lists a single `[[project]]` (the common case:
+tracking your own tool's reach, which is why the Prerequisites example above builds a
+one-Project Manifest). A Manifest listing several Projects makes `boast about manifest.toml`
+write one Snapshot file per Project on every run; the "newest" pick above then only covers
+whichever Project's file happens to sort last, silently leaving the others out of `IMPACT.md`.
+If you need one report covering several Projects, render each Project's own newest Snapshot
+into its own file (e.g. loop over the distinct filename suffixes) rather than trying to
+squeeze them into one `IMPACT.md`, or run this workflow once per Project against separate
+single-Project Manifests.
+
 ## Diffing the history once you have it
 
-Once you've got two or more committed Snapshots, compare any pair directly:
+Once you've got two or more committed Snapshots, compare any pair directly (filenames carry
+the Project's own identity suffix, per "The knobs" above):
 
 ```
-boast diff snapshots/20260301T030001Z.json snapshots/20260401T030001Z.json
+boast diff snapshots/20260301T030001Z-doi-10.1234-journal.xyz.json \
+           snapshots/20260401T030001Z-doi-10.1234-journal.xyz.json
 ```
 
 ## Keys as repo secrets

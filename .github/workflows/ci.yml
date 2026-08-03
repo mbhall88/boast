@@ -14,7 +14,7 @@ jobs:
     name: fmt · clippy · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install toolchain components
         run: rustup component add rustfmt clippy
       - name: Format
@@ -28,7 +28,7 @@ jobs:
     name: static musl build (ADR-0004)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install musl toolchain
         run: |
           sudo apt-get update
@@ -41,7 +41,7 @@ jobs:
           file target/x86_64-unknown-linux-musl/release/boast
           file target/x86_64-unknown-linux-musl/release/boast | grep -q 'static' \
             && echo "OK: statically linked" || (echo "NOT static" && exit 1)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: boast-x86_64-unknown-linux-musl
           path: target/x86_64-unknown-linux-musl/release/boast

@@ -10,14 +10,48 @@ boast about --repo samtools/samtools \
             10.1371/journal.pbio.1002195
 ```
 
-`--package` is repeatable — list every registry the tool is published on:
+`--package` is repeatable — list every registry the tool is published on. samtools is
+also on Homebrew, so:
 
 ```
 boast about --repo samtools/samtools \
             --package conda:bioconda/samtools \
-            --package crates:samtools \
+            --package homebrew:samtools \
             10.1371/journal.pbio.1002195
 ```
+
+Output (Code, Downloads-per-channel, and a Downloads Rollup — Citations/Attention are
+the same shape shown in [Getting started](../getting-started.md#your-first-report), so
+only the sections that are new here are shown):
+
+```
+━━ github:samtools/samtools ━━
+── Code ──
+  stars                 1934  all-time  github
+  forks                  613  all-time  github
+  watchers                94  all-time  github  users watching the repo (subscribers)
+  repo_age_years       14.40  all-time  github  since 2012-03-09
+  contributors            108  all-time  github
+  release_downloads  2156386  all-time  github  summed across release assets
+
+━━ conda:bioconda/samtools ━━
+── Downloads ──
+  downloads  9032484  all-time  bioconda
+
+━━ homebrew:samtools ━━
+── Downloads ──
+  downloads_30d    503  last 30 days   homebrew
+  downloads_90d   1169  last 90 days   homebrew
+  downloads_365d  5566  last 365 days  homebrew
+
+═══ Downloads Rollup (derived — see channels above) ═══
+  11188870 all-time = github:samtools/samtools (2156386) + conda:bioconda/samtools (9032484)
+```
+
+Homebrew's own Metrics don't join the Rollup — they're all trailing Windows (30/90/365
+day), and a Rollup can only sum Metrics that share a compatible Window (see
+[Concepts](../concepts.md), Rollup and Window); mixing a trailing count in with two
+all-time counts would misrepresent the total, so it stays out.
 
 Run `boast providers` to see the full registry of Providers, which Category each
 serves, and which package registries they cover.
@@ -45,7 +79,19 @@ You can also build a Manifest up front, without fetching anything, via `boast in
 
 ```
 boast init --repo samtools/samtools --package conda:bioconda/samtools \
-           -o manifest.toml 10.1371/journal.pbio.1002195
+           --package homebrew:samtools -o manifest.toml 10.1371/journal.pbio.1002195
+```
+
+`manifest.toml` now contains, offline, with nothing fetched:
+
+```toml
+[[project]]
+identities = [
+    "doi:10.1371/journal.pbio.1002195",
+    "github:samtools/samtools",
+    "conda:bioconda/samtools",
+    "homebrew:samtools",
+]
 ```
 
 ## Ranking within a Cohort
@@ -55,6 +101,18 @@ where it ranks by stars among every repo sharing that topic:
 
 ```
 boast about --repo samtools/samtools --topic bioinformatics 10.1371/journal.pbio.1002195
+```
+
+The Code section gains a `cohort_rank` row, and a matching disclaimer appears in
+Notices:
+
+```
+── Code ──
+  ...
+  cohort_rank (bioinformatics)       16  all-time  github
+
+── Notices ──
+  #16 of 15275 repos tagged 'bioinformatics'; GitHub topics are inconsistently applied
 ```
 
 Omit `--topic` and boast ranks within whatever topics the repo has actually declared on

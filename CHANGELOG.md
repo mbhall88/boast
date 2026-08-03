@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0](https://github.com/mbhall88/boast/compare/0.1.1...0.2.0) (2026-08-03)
+
+
+### Features
+
+* add mdBook documentation site on GitHub Pages, shrink README to a front door ([5823c15](https://github.com/mbhall88/boast/commit/5823c15de3f45b29b0ed5788f39c7de383a3a34e)), closes [#45](https://github.com/mbhall88/boast/issues/45)
+
+
+### Bug Fixes
+
+* fix broken example command, derive CLI reference subcommand list, link orphaned spec ([9582096](https://github.com/mbhall88/boast/commit/958209669b7e564c317934f176a6438865062092))
+* stop release-please creating a GitHub Release that conflicts with dist ([#55](https://github.com/mbhall88/boast/issues/55)) ([2bfbfb9](https://github.com/mbhall88/boast/commit/2bfbfb9757b4f428c7fc8c06902d4757def387ca))
+
 ## [0.1.1](https://github.com/mbhall88/boast/compare/0.1.0...0.1.1) (2026-07-31)
 
 

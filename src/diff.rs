@@ -140,7 +140,10 @@ fn confirmed_not_applicable(snapshot: &Snapshot, provider: &str, identity: &str)
 /// Identity then Category (matching the Report renderers' grouping), then
 /// added/removed/inconclusive/window-changed sections, then any Provider
 /// notice carried by either Snapshot (ADR-0005 — a notice must survive every
-/// Report format, including a diff between two of them).
+/// Report format, including a diff between two of them), then a Provider
+/// Notes footer for `Failed` messages from `new` only (ADR-0008/#64 — an
+/// operational message from `old` is stale by the time a diff is read, and
+/// `NotApplicable` already has its own signal in the Removed section above).
 pub fn render(old: &Snapshot, new: &Snapshot, diff: &Diff) -> String {
     let mut out = String::new();
 
@@ -227,25 +230,11 @@ pub fn render(old: &Snapshot, new: &Snapshot, diff: &Diff) -> String {
         }
     }
 
-    // Only the new Snapshot's Failed messages, never the old Snapshot's
-    // (stale by the time a diff is read) and never NotApplicable (already
-    // has its own signal: the Removed section above) — see #64/ADR-0008.
     let provider_notes: Vec<_> = report::provider_operational_notes(new)
         .into_iter()
         .filter(|n| n.kind == report::OutcomeKind::Failed)
         .collect();
-    if !provider_notes.is_empty() {
-        out.push_str("\n── Provider Notes ──\n");
-        for note in provider_notes {
-            out.push_str(&format!(
-                "  {} ({}): {} — {}\n",
-                note.provider,
-                note.kind.label(),
-                note.message,
-                report::format_covered_identities(&note.identities),
-            ));
-        }
-    }
+    report::write_provider_notes_terminal(&mut out, provider_notes);
 
     out
 }

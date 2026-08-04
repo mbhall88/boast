@@ -122,19 +122,7 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
         }
     }
 
-    let provider_notes = provider_operational_notes(snapshot);
-    if !provider_notes.is_empty() {
-        out.push_str("\n── Provider Notes ──\n");
-        for note in provider_notes {
-            out.push_str(&format!(
-                "  {} ({}): {} — {}\n",
-                note.provider,
-                note.kind.label(),
-                note.message,
-                format_covered_identities(&note.identities),
-            ));
-        }
-    }
+    write_provider_notes_terminal(&mut out, provider_operational_notes(snapshot));
 
     if snapshot.has_failures() {
         out.push_str(
@@ -521,7 +509,7 @@ pub(crate) fn provider_operational_notes(snapshot: &Snapshot) -> Vec<ProviderNot
 /// own footer entry into a wall of identifiers.
 const IDENTITY_PREVIEW_LIMIT: usize = 3;
 
-pub(crate) fn format_covered_identities(identities: &[&str]) -> String {
+fn format_covered_identities(identities: &[&str]) -> String {
     if identities.len() <= IDENTITY_PREVIEW_LIMIT {
         let owned: Vec<String> = identities.iter().map(|s| s.to_string()).collect();
         join_with_and(&owned)
@@ -529,6 +517,26 @@ pub(crate) fn format_covered_identities(identities: &[&str]) -> String {
         let shown = identities[..IDENTITY_PREVIEW_LIMIT].join(", ");
         let more = identities.len() - IDENTITY_PREVIEW_LIMIT;
         format!("{shown}, and {more} more")
+    }
+}
+
+/// Appends the `── Provider Notes ──` footer in its shared terminal-style
+/// framing (used verbatim by `render_terminal` and by [`crate::diff`]'s
+/// renderer, which has no Markdown-flavoured output of its own to diverge
+/// into the way `render_markdown` does). A no-op if `notes` is empty.
+pub(crate) fn write_provider_notes_terminal(out: &mut String, notes: Vec<ProviderNote<'_>>) {
+    if notes.is_empty() {
+        return;
+    }
+    out.push_str("\n── Provider Notes ──\n");
+    for note in notes {
+        out.push_str(&format!(
+            "  {} ({}): {} — {}\n",
+            note.provider,
+            note.kind.label(),
+            note.message,
+            format_covered_identities(&note.identities),
+        ));
     }
 }
 

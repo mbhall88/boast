@@ -50,6 +50,14 @@ platform are all covered on the
 else: concepts, guides, the Providers and CLI reference, automating snapshots in CI, and the
 design decisions behind how boast works.
 
+## Try it
+
+```
+boast about --repo samtools/samtools \
+            --package conda:bioconda/samtools \
+            10.1093/gigascience/giab008
+```
+
 ## License
 
 MIT © 2026 Michael Hall

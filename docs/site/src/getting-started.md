@@ -86,7 +86,7 @@ registry, tell boast about those too, so every Category has something to report 
 ```
 boast about --repo samtools/samtools \
             --package conda:bioconda/samtools \
-            10.1371/journal.pbio.1002195
+            10.1093/gigascience/giab008
 ```
 
 Now the Report gains a Code section for the repo, a Downloads section for the package,

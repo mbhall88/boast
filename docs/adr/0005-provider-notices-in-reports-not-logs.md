@@ -2,7 +2,7 @@
 
 ## Status
 
-accepted
+accepted — refined by ADR-0008, which scopes this footer to licence/terms text and gives `NotApplicable`/`Failed` messages a sibling section of their own
 
 ## Context and decision
 

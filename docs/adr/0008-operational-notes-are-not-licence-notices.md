@@ -1,0 +1,29 @@
+# Operational Provider notes are a sibling footer section, not licence notices
+
+## Status
+
+accepted
+
+## Context and decision
+
+`report.rs` gates every row's detail text on `INLINE_DETAIL_LIMIT` (80 characters). Only `Metric.note` had a fallback past that gate: promotion to the once-per-run `── Notices ──` footer (ADR-0005). A `NotApplicable`/`Failed` Outcome's message went through the identical gate with no fallback at all, because `provider_notices` scans `snapshot.metrics()` and neither of those Outcomes carries any Metrics. Any such message over the limit was therefore dropped silently from both the terminal and Markdown Reports — the row rendered as a bare `N/A`/`FAILED` with nothing saying why. This was found by manual end-to-end testing while implementing the Attention Category, not by a test, and was worked around at the time by shortening the offending Altmetric message to fit under the limit: a fix that left the trap armed for the next Provider to write a longer one.
+
+The obvious repair is to route those messages into the existing footer. We decided against it: **a licence notice and an operational explanation are different kinds of text and need different rules.** ADR-0005's footer exists to satisfy Providers whose terms require visible attribution wherever their numbers are displayed, and it de-duplicates by exact text precisely because the same Dimensions boilerplate legitimately repeats across every DOI. Attribution is a property of the data, so discarding Provider×Identity from it is correct. An operational message — "no API key configured", "rate limited after three retries" — is the opposite kind of thing: it is *about* one Provider's attempt on one Identity, and discarding that context is what makes it useless.
+
+So a `NotApplicable`/`Failed` message over the limit is promoted to a second footer section, `── Provider Notes ──` (`## Provider Notes` in Markdown), rendered after `── Notices ──`. Entries de-duplicate on `(provider, outcome kind, message)`. Identity drops out of the key, so one shared message collapses to a single line naming the Identities it covers; Provider and Outcome kind stay in it, so `altmetric`'s N/A can never merge with `crates.io`'s, and a `NotApplicable` can never merge with a `Failed` — ADR-0002's honesty model turns on those two staying distinguishable. The row itself is left untouched, with no "see below" pointer, since the footer names its own Identities and the table stays readable without one.
+
+## Considered options
+
+- **Extend `provider_notices` to scan `NotApplicable`/`Failed` as well.** One code path, smallest possible diff, and it does close the drop. Rejected: it mixes operational noise into the one block that exists to be pasted into a grant proposal alongside the numbers, and it inherits dedup-by-exact-text — so a dozen Identities failing would collapse to a single line with no way to tell which, and two Providers emitting the same generic error would silently merge.
+- **Wrap the long text inline beneath its own row instead of promoting it.** No footer, no dedup question at all, and Provider×Identity adjacency comes for free. Rejected: a missing API key produces one identical message per Identity, so an ORCID-expanded run (ADR-0006, ~118 works) would print the same sentence ~118 times — the exact wall of text ADR-0005 rejected when it chose a footer over inline notices in the first place.
+- **Mark the affected row with a pointer to the footer, or with a truncated inline preview.** Rejected: the pointer adds a constant string to every affected row carrying information the footer already provides, and the preview duplicates the text in two places while reintroducing mid-word truncation — a bug class this codebase has already been bitten by.
+- **Surface these in `render_prose` and `diff::render` too.** Rejected for now, on separate grounds. Prose is the auto-written grant-ready sentence and deliberately carries only headline numbers plus the licence notice attached to them, so operational caveats do not belong in it. `diff::render` never rendered `NotApplicable`/`Failed` messages at *any* length, so extending it is a feature gap rather than part of this drop, and is tracked separately.
+
+## Consequences
+
+- **Reports now have two footer sections with deliberately different semantics**, and the split is by Outcome kind rather than by length or content: a `Metric.note` over the limit goes to `Notices`; a `NotApplicable`/`Failed` message over the limit goes to `Provider Notes`. A Provider author choosing where their text lands chooses an Outcome, not a section.
+- **Length still decides inline-versus-footer within each kind**, so `INLINE_DETAIL_LIMIT` keeps the double duty ADR-0005 gave it. A short operational message stays on its row and never reaches the footer, which means a short message shared across many Identities still repeats once per row. Accepted: it is short by definition, and the alternative is promoting text that fits perfectly well where it already is.
+- **The workaround comment on the Altmetric Provider — keep this message under 80 characters — becomes obsolete** and should be removed with the fix. It is the only place the trap was written down, so leaving it would keep telling future Provider authors to write around a limit that no longer bites.
+- **`Provider Note` enters the glossary as a term distinct from `Notice`**, so the two are nameable in review instead of both being "the long-text thing".
+- **Nothing about the Snapshot changes.** The message was always recorded on the `Outcome` and always survived to the JSON; this was a rendering gap, not data loss. No schema version bump, no migration, and existing Snapshots render correctly under the new rules.
+- **`diff::render` still shows neither kind of message**, so a diff can present an inconclusive entry without the `Failed` text that would explain it. Tracked as follow-up work rather than fixed here.

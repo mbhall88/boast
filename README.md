@@ -52,15 +52,16 @@ design decisions behind how boast works.
 
 ## Try it
 
-Combine a repo with a paper DOI and every Category reports in, including the Provider
-Notes explaining anything that couldn't be collected:
+Combine a repo, a package, and a paper DOI and every Category reports in — including a
+Downloads Rollup across channels and the Provider Notes explaining anything that
+couldn't be collected:
 
 ```
-boast about --repo lh3/minimap2 10.1093/bioinformatics/bty191
+boast about --repo lh3/minimap2 10.1093/bioinformatics/bty191 --package conda:bioconda/minimap2
 ```
 
 ```
-boast 0.3.0 — as of 2026-08-04T06:44:18Z
+boast 0.3.0 — as of 2026-08-04T06:45:44Z
 
 ━━ doi:10.1093/bioinformatics/bty191 ━━
 "Minimap2: pairwise alignment for nucleotide sequences" — Heng Li, Bioinformatics, 2018
@@ -91,6 +92,13 @@ boast 0.3.0 — as of 2026-08-04T06:44:18Z
   cohort_rank (genomics)                 4  all-time  github  #4 of 4322 repos tagged 'genomics'; GitHub topics are inconsistently applied
   cohort_rank (sequence-alignment)       2  all-time  github
   cohort_rank (spliced-alignment)        1  all-time  github
+
+━━ conda:bioconda/minimap2 ━━
+── Downloads ──
+  downloads  1426981  all-time  bioconda
+
+═══ Downloads Rollup (derived — see channels above) ═══
+  1728204 all-time = github:lh3/minimap2 (301223) + conda:bioconda/minimap2 (1426981)
 
 ── Notices ──
   This data has been sourced via the Dimensions Metrics API, use of which is subject to the terms at https://dimensions.ai/policies/terms/metrics/. Any use by an unregistered organization is not authorized. Please contact info@dimensions.ai for further information.

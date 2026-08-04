@@ -131,13 +131,13 @@ both by hand first. A committed file has neither problem.
 This template's "Regenerate the rolling report" step renders whichever Snapshot file sorts
 last — correct as long as your Manifest lists a single `[[project]]` (the common case:
 tracking your own tool's reach, which is why the Prerequisites example above builds a
-one-Project Manifest). A Manifest listing several Projects makes `boast about manifest.toml`
+one Project Manifest). A Manifest listing several Projects makes `boast about manifest.toml`
 write one Snapshot file per Project on every run; the "newest" pick above then only covers
 whichever Project's file happens to sort last, silently leaving the others out of `IMPACT.md`.
 If you need one report covering several Projects, render each Project's own newest Snapshot
 into its own file (e.g. loop over the distinct filename suffixes) rather than trying to
 squeeze them into one `IMPACT.md`, or run this workflow once per Project against separate
-single-Project Manifests.
+single Project Manifests.
 
 ## Diffing the history once you have it
 
@@ -158,7 +158,7 @@ boast diff snapshots/20260301T030001Z-doi-10.1234-journal.xyz.json \
 - `ALTMETRIC_KEY` — optional, and only relevant if you have an Altmetric **Details Page
   API** key (not an Explorer key — they're different products with different credentials).
   Add it under **Settings → Secrets and variables → Actions → New repository secret** on
-  your repo. Without it, Attention-category Altmetric metrics report as not-applicable; every
+your repo. Without it, Attention category Altmetric metrics report as not-applicable; every
   other Provider is unaffected.
 
 Run `boast providers` to see the full, current list of which Providers need which key.

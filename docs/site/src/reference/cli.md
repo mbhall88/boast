@@ -69,8 +69,8 @@ Options:
           Output format
 
           Possible values:
-          - markdown: Category-grouped Markdown Report — the primary saved artifact
-          - prose:    A single grant-ready sentence summarising the headline Metrics
+          - markdown: Markdown Report grouped by Category — the primary saved artifact
+          - prose:    A single sentence for grant writing, summarising the headline Metrics
           
           [default: markdown]
 

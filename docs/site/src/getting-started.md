@@ -69,7 +69,7 @@ boast 0.1.1 — as of 2026-08-03T05:43:11Z
   recent_citations        165  last two calendar years  dimensions  resets each 1 January; not a rolling 24-month window
   fcr                  116.83  all-time                 dimensions  Field Citation Ratio; 1.0 = world average for the field and year
   rcr                   15.96  all-time                 dimensions  Relative Citation Ratio; 1.0 = NIH-funded benchmark
-  citations               581  all-time                 europe_pmc  life-sciences-native citation count, per Europe PMC
+  citations               581  all-time                 europe_pmc  citation count from Europe PMC
 ── Attention ──
   open_access         gold  all-time  openalex  OpenAlex open-access status; "closed" means no open-access copy found
   wikipedia_mentions     0  all-time  wikipedia

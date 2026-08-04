@@ -1,4 +1,4 @@
-//! PyPI download-count Provider, via pypistats.org: the package's downloads
+//! PyPI Provider for package download counts, via pypistats.org: the package's downloads
 //! for pypistats' own `last_month` recency bucket, reported as a trailing
 //! 30-day Window since pypistats doesn't publish an exact day boundary for it
 //! (CONTEXT.md classes "PyPI last-month" as trailing; ADR-0003).

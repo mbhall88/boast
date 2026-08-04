@@ -1,4 +1,4 @@
-//! Anaconda.org download-count Provider: the package's cumulative download
+//! Anaconda.org Provider for package download counts: the package's cumulative download
 //! total across all versions and platforms, for any channel on Anaconda.org
 //! (bioconda, conda-forge, or any other) — see ADR-0003.
 //!

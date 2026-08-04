@@ -1,6 +1,7 @@
 //! The core domain model: Identity, Project, Metric (with its Window), Outcome,
 //! and Snapshot. See `CONTEXT.md` for the glossary these types encode, and
-//! ADR-0001 (snapshot-centric) and ADR-0002 (metric honesty) for the rules.
+//! ADR-0001 (architecture centred on Snapshots) and ADR-0002 (metric honesty)
+//! for the rules.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

@@ -70,7 +70,7 @@ pub struct Diff {
 /// true for every Provider today (e.g. Homebrew's three trailing-window
 /// download counts are named `downloads_30d`/`downloads_90d`/`downloads_365d`,
 /// not sharing a name). A future Provider that violated this would still
-/// match Metrics correctly by name, but Window-equality checking happens
+/// match Metrics correctly by name, but equality of Windows happens
 /// only after the first same-name candidate is picked, so an old Metric
 /// could pair with the wrong same-named Window instead of its true match.
 pub fn compute(old: &Snapshot, new: &Snapshot) -> Diff {

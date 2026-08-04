@@ -20,7 +20,7 @@ boast about --repo samtools/samtools \
             10.1371/journal.pbio.1002195
 ```
 
-Output (Code, Downloads-per-channel, and a Downloads Rollup — Citations/Attention are
+Output (Code, Downloads per channel, and a Downloads Rollup — Citations/Attention are
 the same shape shown in [Getting started](../getting-started.md#your-first-report), so
 only the sections that are new here are shown):
 

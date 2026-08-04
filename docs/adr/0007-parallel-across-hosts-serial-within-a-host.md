@@ -6,7 +6,7 @@ accepted
 
 ## Context and decision
 
-`orchestrator::run` used to be a plain nested `for identity { for provider { … } }` loop — every fetch sequential. That's fine for one DOI (~6 Providers), but an ORCID-expanded Manifest (see ADR-0006) can hold ~118 works, i.e. ~118 × 6 ≈ 700 sequential requests: a multi-minute floor before `RetryingTransport`'s backoff makes a bad run worse.
+`orchestrator::run` used to be a plain nested `for identity { for provider { … } }` loop — every fetch sequential. That's fine for one DOI (~6 Providers), but a Manifest expanded from ORCID (see ADR-0006) can hold ~118 works, i.e. ~118 × 6 ≈ 700 sequential requests: a multi-minute floor before `RetryingTransport`'s backoff makes a bad run worse.
 
 We decided: **fetches run concurrently across hosts, but never concurrently against the same host.** Crossref and OpenAlex operate "polite pools" that expect a sane request rate from a single client; firing many concurrent requests at one host would get us throttled or blocked — worse than the sequential status quo. Because every current Provider maps 1:1 onto a distinct host, parallelising across Providers yields roughly 6× speedup while staying *politer* than a naive "parallelise everything" approach: each host still sees requests one at a time, just from several hosts at once.
 

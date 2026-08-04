@@ -32,7 +32,7 @@ pub struct RollupChannel {
 /// A Window with only one contributing Metric is left out of the result
 /// entirely — there is nothing to roll up, so the caller's own Metric rows
 /// already show the figure. Only `MetricValue::Count` values can contribute;
-/// this is purely a defensive filter since every download-eligible Metric
+/// this is purely a defensive filter since every Metric eligible for a download
 /// (see [`counts_as_download`]) is a Count, but a Rollup is a count total and
 /// must never silently coerce or skip a non-Count value into one.
 ///
@@ -205,7 +205,7 @@ mod tests {
             metric("crates.io", "crates:boast", 100, Window::Cumulative),
             real_valued,
         ];
-        // Only one Count-valued Metric shares the window, so nothing rolls up.
+        // Only one Metric with a Count value shares the window, so nothing rolls up.
         assert_eq!(compute(&metrics), Vec::new());
     }
 

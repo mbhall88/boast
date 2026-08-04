@@ -1,7 +1,7 @@
 //! OpenAlex citation Provider: the headline citation count plus the
 //! field-weighted citation impact (FWCI) and citation percentile — all free,
 //! no key. This is the walking skeleton's payload Provider. Also the source
-//! of the keyless-default Attention Category's open-access status (ADR-0003)
+//! of the Attention Category's default keyless open-access status (ADR-0003)
 //! — a single OpenAlex call answers both Categories, so that Metric is tagged
 //! `Category::Attention` directly rather than routed through a second
 //! Provider/fetch for data the response already carries.

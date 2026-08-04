@@ -221,8 +221,8 @@ impl<T: Transport> RetryingTransport<T> {
     }
 
     /// Wrap `inner` with an explicit policy and a custom `sleep`, so tests can
-    /// exercise retry/backoff without a real wall-clock delay. Crate-internal
-    /// only — not part of the public API surface.
+    /// exercise retry/backoff without a real wall-clock delay. Internal to the
+    /// crate only — not part of the public API surface.
     #[cfg(test)]
     pub(crate) fn with_policy_and_sleep(
         inner: T,

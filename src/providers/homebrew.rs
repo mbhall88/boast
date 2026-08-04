@@ -1,4 +1,4 @@
-//! Homebrew download-count Provider, via formulae.brew.sh: install counts
+//! Homebrew Provider for install counts, via formulae.brew.sh: install counts
 //! over the three trailing windows Homebrew's own analytics publish — 30,
 //! 90, and 365 days — all from one formula-info fetch (ADR-0003).
 

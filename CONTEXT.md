@@ -1,6 +1,6 @@
 # boast
 
-`boast` gathers impact and reach metrics for a piece of research software (and/or its associated paper) from across code hosts, package registries, and citation/attention databases, so a user can make evidence-backed statements about a tool's impact (e.g. in a grant proposal). (Name is free on crates.io, Bioconda, Homebrew, and PyPI as of 2026-07.)
+`boast` gathers impact and reach metrics for a piece of research software (and/or its associated paper) from across code hosts, package registries, and citation/attention databases, so a user can make statements backed by evidence about a tool's impact (e.g. in a grant proposal). (Name is free on crates.io, Bioconda, Homebrew, and PyPI as of 2026-07.)
 
 ## Language
 
@@ -31,7 +31,7 @@ The primary durable artifact: a timestamped, machine-readable record of every Me
 _Avoid_: Run, result, output, cache
 
 **Report**:
-A human-readable rendering of one or more Snapshots, always derived from Snapshots and never fetching data itself. v1 renderers: a terminal table (default), Markdown (primary saved artifact), and a **prose snippet** (an auto-written grant-ready sentence). HTML (with over-time charts) and CSV come later.
+A human-readable rendering of one or more Snapshots, always derived from Snapshots and never fetching data itself. v1 renderers: a terminal table (default), Markdown (primary saved artifact), and a **prose snippet** (an automatically written sentence for grant writing). HTML (with over-time charts) and CSV come later.
 _Avoid_: Output, summary, document
 
 **Notice**:
@@ -47,7 +47,7 @@ The set of repositories a Project's repo is ranked within, defined by a GitHub *
 _Avoid_: Peers, competitors, similar tools, category
 
 **Rollup**:
-A derived Metric produced by combining compatible Metrics — e.g. a total-downloads figure summed across channels. A Rollup must name every Metric it includes and their shared Window; it never silently mixes incompatible Windows or channels.
+A derived Metric produced by combining compatible Metrics — e.g. a total downloads value summed across channels. A Rollup must name every Metric it includes and their shared Window; it never silently mixes incompatible Windows or channels.
 _Avoid_: Total, sum, aggregate
 
 **Category**:
@@ -55,7 +55,7 @@ The family a Metric belongs to, used to group the Report. Four in v1: **Code** (
 _Avoid_: Kind, group, type, section
 
 **Provider**:
-A source-specific component that, given an Identity, fetches zero or more Metrics from one external service (GitHub, Bioconda, OpenAlex, …). Providers are pluggable; the system ships a curated default set.
+A component for one source that, given an Identity, fetches zero or more Metrics from one external service (GitHub, Bioconda, OpenAlex, …). Providers are pluggable; the system ships a curated default set.
 _Avoid_: Source, backend, connector, adapter
 
 **Identity**:

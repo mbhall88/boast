@@ -26,14 +26,14 @@ boast 0.3.0 — as of 2026-08-04T06:35:40Z
   #1 of 6 repos tagged 'spliced-alignment'; GitHub topics are inconsistently applied
 ```
 
-A reproducible research-impact aggregator. Point `boast` at a **Project** — a piece of
+A reproducible research impact aggregator. Point `boast` at a **Project** — a piece of
 research software identified by any of a code repository, distribution packages, and/or a
 paper — and it gathers reach **Metrics** across four **Categories** (Code, Downloads,
 Citations, Attention) from a curated set of pluggable **Providers**, records them in a
-durable, timestamped **Snapshot** with full provenance, and renders grant-ready **Reports**
-(terminal, Markdown, and an auto-written prose sentence).
+durable, timestamped **Snapshot** with full provenance, and renders **Reports** for grant
+writing (terminal, Markdown, and an automatically written prose sentence).
 
-Built for evidence-backed statements about a tool's impact — the kind you make in a grant
+Built for statements backed by evidence about a tool's impact — the kind you make in a grant
 proposal — with reproducibility and honesty as first principles: dated, attributable
 Snapshots you can commit and re-render, metrics that are never silently coerced to zero, and
 totals that never mix incompatible time windows.
@@ -74,7 +74,7 @@ boast 0.3.0 — as of 2026-08-04T06:45:44Z
   recent_citations        6207  last two calendar years  dimensions  resets each 1 January; not a rolling 24-month window
   fcr                  1768.19  all-time                 dimensions  Field Citation Ratio; 1.0 = world average for the field and year
   rcr                   310.53  all-time                 dimensions  Relative Citation Ratio; 1.0 = NIH-funded benchmark
-  citations              11563  all-time                 europe_pmc  life-sciences-native citation count, per Europe PMC
+  citations              11563  all-time                 europe_pmc  citation count from Europe PMC
 ── Attention ──
   open_access         bronze  all-time  openalex  OpenAlex open-access status; "closed" means no open-access copy found
   wikipedia_mentions       3  all-time  wikipedia

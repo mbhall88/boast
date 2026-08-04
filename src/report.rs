@@ -1,5 +1,5 @@
 //! Renders a Snapshot into a terminal table, a Markdown Report, or a
-//! grant-ready prose sentence. A Report is always derived from a Snapshot and
+//! prose sentence for grant writing. A Report is always derived from a Snapshot and
 //! never fetches (ADR-0001). NotApplicable shows as N/A and Failed is
 //! flagged — never a misleading 0.
 
@@ -133,7 +133,7 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
     out
 }
 
-/// Render the Snapshot as a grant-friendly Markdown Report, grouped by
+/// Render the Snapshot as a Markdown Report suitable for grant writing, grouped by
 /// identity then Category — the primary saved artifact for pasting into a
 /// document or README (never fetches; see ADR-0001).
 pub fn render_markdown(snapshot: &Snapshot) -> String {
@@ -250,7 +250,7 @@ fn escape_md_cell(s: &str) -> String {
     s.replace('|', "\\|").replace('\n', " ")
 }
 
-/// Render a single grant-ready sentence summarising the Snapshot's headline
+/// Render a single sentence for grant writing, summarising the Snapshot's headline
 /// Metrics (never fetches; see ADR-0001). Only Metrics that actually resolved
 /// to a Value are named — an absent or failed Metric is silently omitted
 /// rather than implied as 0 (ADR-0002); a partial Snapshot is flagged in a
@@ -355,7 +355,7 @@ fn headline_citations(snapshot: &Snapshot) -> Option<(u64, String, Option<String
         .max_by_key(|(c, _, _)| *c)
 }
 
-/// The largest "stars" Metric across the whole Snapshot. Whole-Snapshot, not
+/// The largest "stars" Metric across the whole Snapshot. Across the whole Snapshot, not
 /// per Identity — see [`headline_citations`]'s doc comment for why.
 fn headline_stars(snapshot: &Snapshot) -> Option<u64> {
     snapshot

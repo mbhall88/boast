@@ -1,4 +1,4 @@
-//! Altmetric attention-breakdown Provider: the richer, opt-in half of the
+//! Altmetric Provider for the detailed attention breakdown: the richer, opt-in half of the
 //! Attention Category (ADR-0003) — an overall Attention Score plus a
 //! news/blog/policy/patent/social/Mendeley-readers breakdown, gated behind
 //! `ALTMETRIC_KEY` since Altmetric's Details Page API stopped answering

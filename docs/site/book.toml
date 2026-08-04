@@ -1,6 +1,6 @@
 [book]
 title = "boast"
-description = "A reproducible research-impact aggregator"
+description = "A reproducible research impact aggregator"
 authors = ["Michael Hall"]
 language = "en"
 src = "src"

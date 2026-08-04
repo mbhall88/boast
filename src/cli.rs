@@ -90,9 +90,9 @@ pub struct RenderArgs {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Format {
-    /// Category-grouped Markdown Report — the primary saved artifact.
+    /// Markdown Report grouped by Category — the primary saved artifact.
     Markdown,
-    /// A single grant-ready sentence summarising the headline Metrics.
+    /// A single sentence for grant writing, summarising the headline Metrics.
     Prose,
 }
 
@@ -390,7 +390,7 @@ fn manifest_positional(args: &AboutArgs) -> Option<&std::path::Path> {
 /// Run every Project listed in a Manifest, printing and writing a Snapshot
 /// for each (`about` always fetches live — ADR-0001). `--topic`, if given,
 /// overrides every Project's own manifest topic, the same way it already
-/// overrides a repo's own declared topics for a single-Project run.
+/// overrides a repo's own declared topics for a run covering one Project.
 fn run_about_manifest(path: &std::path::Path, args: &AboutArgs) -> i32 {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -449,7 +449,7 @@ fn run_about_manifest(path: &std::path::Path, args: &AboutArgs) -> i32 {
 }
 
 /// Print a Snapshot's terminal Report and, unless `--no-save`, write it to
-/// `args.snapshot_dir` — shared by `about`'s single-Project run and each
+/// `args.snapshot_dir` — shared by `about`'s run for one Project and each
 /// iteration of a Manifest batch run.
 fn print_and_save_snapshot(
     snapshot: &Snapshot,
@@ -801,7 +801,7 @@ fn parse_identifier_lines(content: &str) -> Result<Vec<Identity>, String> {
 /// Write a Snapshot into `dir`, named by its `created_at` timestamp. `suffix`
 /// (a Manifest batch run's per-Project filename component, see
 /// `sanitize_filename`) disambiguates multiple Snapshots written in the same
-/// run whose timestamps might otherwise collide; a single-Project `about`
+/// run whose timestamps might otherwise collide; a `about` run for one Project
 /// run passes `None` and keeps the plain timestamp-only filename.
 fn write_snapshot(
     snapshot: &crate::model::Snapshot,

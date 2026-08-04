@@ -1,4 +1,4 @@
-//! The Provider trait: a source-specific component that, given an Identity,
+//! The Provider trait: a component for one source that, given an Identity,
 //! fetches Metrics from one external service through the [`Transport`] seam.
 //! Providers are pluggable; the default set is assembled in [`crate::providers`].
 

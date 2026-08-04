@@ -65,7 +65,7 @@ impl Manifest {
         Ok(toml::to_string_pretty(self)?)
     }
 
-    /// Build a single-Project Manifest reflecting a run's identities and
+    /// Build a Manifest for one Project, reflecting a run's identities and
     /// topic — the shared basis for both `init` and `about --save`.
     pub fn from_identities(identities: &[Identity], topic: Option<&str>) -> Manifest {
         Manifest {
@@ -76,7 +76,7 @@ impl Manifest {
         }
     }
 
-    /// Build a Manifest from ORCID-expanded Paper Identities, one Project per
+    /// Build a Manifest from Paper Identities expanded from ORCID, one Project per
     /// work (ADR-0006) — `init --orcid`'s counterpart to `from_identities`'s
     /// single Project.
     pub fn from_orcid_works(works: &[PaperId], topic: Option<&str>) -> Manifest {

@@ -1,4 +1,4 @@
-//! crates.io download-count Provider: the crate's cumulative download total —
+//! crates.io Provider for crate download counts: the crate's cumulative download total —
 //! the first Downloads Category Provider (ADR-0003).
 
 use serde::Deserialize;

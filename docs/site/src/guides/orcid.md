@@ -88,6 +88,6 @@ boast about manifest.toml
 ```
 
 writes one Snapshot per Project. Because that's usually a lot of Projects for one
-researcher, the [CI automation guide](./ci-snapshots.md) — built for a single-Project
+researcher, the [CI automation guide](./ci-snapshots.md) — built for a single Project
 Manifest — doesn't directly cover this case; see its "Scope" section for the reason and
 the workaround.

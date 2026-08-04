@@ -42,7 +42,7 @@ boast 0.1.1 — as of 2026-08-03T05:46:47Z
   citations             1426  all-time  openalex
   fwci                 59.95  all-time  openalex  field-weighted citation impact; 1.0 = world average
   citation_percentile  99.96  all-time  openalex  top 1% in its field, year, and type
-  citations              581  all-time  europe_pmc  life-sciences-native citation count, per Europe PMC
+  citations              581  all-time  europe_pmc  citation count from Europe PMC
 ```
 
 Each run already writes a Snapshot to `snapshots/` (pass `--no-save` to only print). See

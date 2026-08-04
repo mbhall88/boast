@@ -1,4 +1,4 @@
-# Snapshot-centric architecture
+# Architecture centred on Snapshots
 
 ## Status
 

@@ -1,4 +1,4 @@
-//! Europe PMC citations Provider: a life-sciences-native citation count,
+//! Europe PMC citations Provider: a citation count from a life sciences source,
 //! reported as a second independent citation number attributed to its own
 //! source (a bio reviewer may recognise Europe PMC over OpenAlex/Crossref).
 //! Works from a DOI or a PMID. The search API always answers 200; its own
@@ -88,7 +88,7 @@ impl EuropePmc {
                 identity: canonical.into(),
                 as_of: OffsetDateTime::now_utc(),
                 source: url.into(),
-                note: Some("life-sciences-native citation count, per Europe PMC".into()),
+                note: Some("citation count from Europe PMC".into()),
             }],
             metadata: None,
         }

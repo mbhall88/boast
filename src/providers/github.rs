@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn no_topic_means_no_cohort_metric() {
-        // Topic-less cassette, no override, and no search route registered: if
+        // Cassette with no topic, no override, and no search route registered: if
         // fetch tried to rank, the mock would panic. It must not, and the
         // metric is simply absent.
         let t = MockTransport::new()

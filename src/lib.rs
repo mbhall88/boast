@@ -1,4 +1,4 @@
-//! `boast` — a reproducible research-impact aggregator.
+//! `boast` — a reproducible research impact aggregator.
 //!
 //! Point it at a [`Project`](model::Project) (a paper, and later a repo and
 //! packages) and it fetches reach [`Metric`](model::Metric)s from pluggable

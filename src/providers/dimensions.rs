@@ -1,5 +1,5 @@
-//! Dimensions badge Provider: citation count, recent (last-two-calendar-year)
-//! citations, Field Citation Ratio (FCR), and Relative Citation Ratio (RCR)
+//! Dimensions badge Provider: citation count, recent citations from the last two
+//! calendar years, Field Citation Ratio (FCR), and Relative Citation Ratio (RCR)
 //! from the free, keyless Dimensions Metrics API. The API's own licence/terms
 //! notice is recorded on the citations Metric and surfaced in Reports rather
 //! than hidden (ADR-0003, ADR-0005).

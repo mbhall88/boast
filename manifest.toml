@@ -1,0 +1,5 @@
+[[project]]
+identities = [
+    "github:mbhall88/boast",
+    "crates:boast",
+]

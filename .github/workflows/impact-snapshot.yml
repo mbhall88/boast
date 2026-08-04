@@ -1,0 +1,65 @@
+name: Impact snapshot
+
+on:
+  schedule:
+    # 03:00 UTC on the 1st of every month. Citations, downloads, and stars
+    # move slowly — weekly mostly adds diff noise and repo churn for near-
+    # identical numbers. Monthly gives a clean twelve-points-a-year series,
+    # matching how these figures actually get quoted ("as of March 2026").
+    - cron: '0 3 1 * *'
+  workflow_dispatch: {} # lets you trigger a run by hand to test the workflow
+
+permissions:
+  contents: write # needed to commit and push the Snapshot + report
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install boast
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mbhall88/boast/releases/latest/download/boast-installer.sh | sh
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # Deliberately NOT `continue-on-error` and NOT `|| true`: `boast about`
+      # exits 1 if any Provider fetch failed (rate limit, timeout, ...), and
+      # that should still turn this job red so a real, persistent problem
+      # doesn't go unnoticed. What it must NOT do is stop the Snapshot from
+      # being written or committed — a partial Snapshot is honest data (a
+      # `Failed` Outcome is recorded, never dropped), and skipping the commit
+      # would additionally punch a silent gap in the history that a later
+      # `diff` couldn't explain.
+      - name: Run boast about
+        run: boast about manifest.toml --snapshot-dir snapshots
+        env:
+          # The auto-provided token can read this repo's own metadata (stars,
+          # etc.) via GitHub's API even while the repo is private, and raises
+          # the unauthenticated rate limit either way. No repo secret needed.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # `if: always()` so this and the commit step below still run even when
+      # the step above exited non-zero. `boast render` itself also exits 1
+      # for a Snapshot recording a `Failed` Outcome, so on a partial failure
+      # this step goes red too, alongside `boast about` above — expected,
+      # not a second problem: IMPACT.md is still written correctly (the
+      # FAILED row included, per ADR-0002) and still gets committed below.
+      - name: Regenerate the rolling report
+        if: always()
+        run: |
+          set -euo pipefail
+          newest=$(find snapshots -maxdepth 1 -name '*.json' | sort | tail -n1)
+          boast render "$newest" --format markdown > IMPACT.md
+
+      - name: Commit snapshot and report
+        if: always()
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add snapshots IMPACT.md
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: monthly impact snapshot"
+          git push

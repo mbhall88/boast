@@ -21,6 +21,11 @@ install-path = "CARGO_HOME"
 hosting = "github"
 # Whether to install an updater program
 install-updater = false
+# release-please creates the GitHub Release (as a draft, tagging immediately
+# via force-tag-creation so this workflow still triggers on tag push — see
+# release-please-config.json). dist just uploads binaries to that existing
+# draft and undrafts it, instead of creating a second, competing Release.
+create-release = false
 # A GitHub repo dist should publish the Homebrew formula to (must already
 # exist, with the release token given write access — see issue #41).
 tap = "mbhall88/homebrew-tap"

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/mbhall88/boast/compare/0.2.1...0.3.0) (2026-08-04)
+
+
+### Features
+
+* surface a diff's Failed messages in a Provider Notes footer ([#68](https://github.com/mbhall88/boast/issues/68)) ([a36c564](https://github.com/mbhall88/boast/commit/a36c564710f4a4cdbb57d763aaadfb688f4901ca))
+
+
+### Bug Fixes
+
+* promote over-length NotApplicable/Failed messages to a Provider Notes footer ([#66](https://github.com/mbhall88/boast/issues/66)) ([c7c9bd2](https://github.com/mbhall88/boast/commit/c7c9bd28fb0cbc6e45281264e2864145cc805558))
+
 ## [0.2.1](https://github.com/mbhall88/boast/compare/0.2.0...0.2.1) (2026-08-04)
 
 

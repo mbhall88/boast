@@ -55,15 +55,11 @@ const API_BASE: &str = "https://api.altmetric.com/v1/fetch";
 
 /// Shown as the `NotApplicable` note whenever `ALTMETRIC_KEY` isn't set — the
 /// Report's visible answer to issue #15 AC3 ("not collected", distinct from
-/// zero). Kept under `report`'s `INLINE_DETAIL_LIMIT` (80 chars) so it
-/// actually renders on the row instead of being silently dropped (a
-/// `NotApplicable`/`Failed` detail has no footer-promotion path the way a
-/// `Metric.note` does — see `report::provider_notices`, which only scans
-/// `Values` metrics). Exposed as a constant, not a literal duplicated in
-/// tests, so report.rs's rendering test can't silently drift out of sync
-/// with what this Provider actually says.
-pub(crate) const NO_KEY_NOTE: &str =
-    "Altmetric attention data not collected: no Details Page API key (ALTMETRIC_KEY)";
+/// zero). Exposed as a constant, not a literal duplicated in tests, so
+/// report.rs's rendering test can't silently drift out of sync with what
+/// this Provider actually says.
+pub(crate) const NO_KEY_NOTE: &str = "Altmetric attention data not collected: no Details Page \
+    API key (ALTMETRIC_KEY). An institutional licence or Altmetric's SRAD program provides one.";
 
 pub struct Altmetric {
     key: Option<String>,

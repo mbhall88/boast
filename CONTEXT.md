@@ -34,6 +34,14 @@ _Avoid_: Run, result, output, cache
 A human-readable rendering of one or more Snapshots, always derived from Snapshots and never fetching data itself. v1 renderers: a terminal table (default), Markdown (primary saved artifact), and a **prose snippet** (an auto-written grant-ready sentence). HTML (with over-time charts) and CSV come later.
 _Avoid_: Output, summary, document
 
+**Notice**:
+A Provider's licence or terms text, recorded on the Metric it accompanies and shown once per Report in a de-duplicated footer, so attribution travels with the artifact rather than with the terminal session that produced it (ADR-0005). De-duplicated by exact text across every Provider and Identity, because the same boilerplate legitimately repeats on each one.
+_Avoid_: Disclaimer, licence blurb, footnote, attribution
+
+**Provider Note**:
+The explanation carried by a NotApplicable or Failed Outcome — why a fetch legitimately yielded nothing ("no API key configured") or failed to complete ("rate limited after three retries"). Not a Notice: it describes one Provider's attempt on one Identity rather than the terms behind a number, so it appears in its own Report section keyed by Provider and Outcome kind, and never merges with a Notice or across Outcome kinds (ADR-0008).
+_Avoid_: Error message, warning, notice, detail
+
 **Cohort**:
 The set of repositories a Project's repo is ranked within, defined by a GitHub **topic** (e.g. all repos tagged `rna-seq`, sorted by stars). The topic may be read from the repo's own declared topics or set explicitly in the manifest. A Cohort ranking is always reported with its topic named and a disclaimer that GitHub topics are inconsistently applied.
 _Avoid_: Peers, competitors, similar tools, category

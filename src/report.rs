@@ -521,7 +521,7 @@ pub(crate) fn provider_operational_notes(snapshot: &Snapshot) -> Vec<ProviderNot
 /// own footer entry into a wall of identifiers.
 const IDENTITY_PREVIEW_LIMIT: usize = 3;
 
-fn format_covered_identities(identities: &[&str]) -> String {
+pub(crate) fn format_covered_identities(identities: &[&str]) -> String {
     if identities.len() <= IDENTITY_PREVIEW_LIMIT {
         let owned: Vec<String> = identities.iter().map(|s| s.to_string()).collect();
         join_with_and(&owned)

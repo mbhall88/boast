@@ -227,6 +227,26 @@ pub fn render(old: &Snapshot, new: &Snapshot, diff: &Diff) -> String {
         }
     }
 
+    // Only the new Snapshot's Failed messages, never the old Snapshot's
+    // (stale by the time a diff is read) and never NotApplicable (already
+    // has its own signal: the Removed section above) — see #64/ADR-0008.
+    let provider_notes: Vec<_> = report::provider_operational_notes(new)
+        .into_iter()
+        .filter(|n| n.kind == report::OutcomeKind::Failed)
+        .collect();
+    if !provider_notes.is_empty() {
+        out.push_str("\n── Provider Notes ──\n");
+        for note in provider_notes {
+            out.push_str(&format!(
+                "  {} ({}): {} — {}\n",
+                note.provider,
+                note.kind.label(),
+                note.message,
+                report::format_covered_identities(&note.identities),
+            ));
+        }
+    }
+
     out
 }
 
@@ -671,5 +691,134 @@ mod tests {
         assert!(out.contains("── Notices ──"));
         // Shared by both Snapshots — must still appear once, not twice.
         assert_eq!(out.matches(notice.as_str()).count(), 1);
+    }
+
+    // -- Provider Notes (#64) --------------------------------------------
+
+    fn failed_result(provider: &str, identity: &str, error: &str) -> FetchResult {
+        FetchResult {
+            provider: provider.into(),
+            identity: identity.into(),
+            category: Category::Citations,
+            outcome: Outcome::Failed {
+                error: error.into(),
+            },
+        }
+    }
+
+    fn not_applicable_result(provider: &str, identity: &str, note: &str) -> FetchResult {
+        FetchResult {
+            provider: provider.into(),
+            identity: identity.into(),
+            category: Category::Citations,
+            outcome: Outcome::NotApplicable { note: note.into() },
+        }
+    }
+
+    #[test]
+    fn render_shows_a_long_failed_message_from_the_new_snapshot() {
+        let long_error = "y".repeat(155);
+        let old = snapshot_at(
+            0,
+            vec![values_result(vec![metric(
+                "citations",
+                MetricValue::Count(5),
+                Window::Cumulative,
+            )])],
+        );
+        let new = snapshot_at(
+            100,
+            vec![failed_result("openalex", "doi:10.1/x", &long_error)],
+        );
+
+        let d = compute(&old, &new);
+        let out = render(&old, &new, &d);
+        assert!(out.contains("── Provider Notes ──"));
+        assert!(out.contains(&long_error));
+    }
+
+    #[test]
+    fn render_omits_a_long_failed_message_that_only_exists_in_the_old_snapshot() {
+        let long_error = "y".repeat(155);
+        // The old Snapshot's Failed message is history; only the new
+        // Snapshot's Failed outcomes are ever shown in this footer.
+        let old = snapshot_at(
+            0,
+            vec![failed_result("openalex", "doi:10.1/x", &long_error)],
+        );
+        let new = snapshot_at(
+            100,
+            vec![values_result(vec![metric(
+                "citations",
+                MetricValue::Count(5),
+                Window::Cumulative,
+            )])],
+        );
+
+        let d = compute(&old, &new);
+        let out = render(&old, &new, &d);
+        assert!(!out.contains("── Provider Notes ──"));
+        assert!(!out.contains(&long_error));
+    }
+
+    #[test]
+    fn render_never_shows_a_not_applicable_message_in_provider_notes() {
+        let long_note = "z".repeat(155);
+        let old = snapshot_at(
+            0,
+            vec![values_result(vec![metric(
+                "citations",
+                MetricValue::Count(5),
+                Window::Cumulative,
+            )])],
+        );
+        let new = snapshot_at(
+            100,
+            vec![not_applicable_result("openalex", "doi:10.1/x", &long_note)],
+        );
+
+        let d = compute(&old, &new);
+        let out = render(&old, &new, &d);
+        // NotApplicable already has its own dedicated signal (Removed); it
+        // must never also appear in the Failed-only Provider Notes footer.
+        assert!(!out.contains("── Provider Notes ──"));
+        assert!(!out.contains(&long_note));
+    }
+
+    #[test]
+    fn render_collapses_one_failed_message_shared_by_two_identities_on_one_provider() {
+        let long_error = "y".repeat(155);
+        let old = snapshot_at(0, vec![]);
+        let new = snapshot_at(
+            100,
+            vec![
+                failed_result("openalex", "doi:10.1/x", &long_error),
+                failed_result("openalex", "doi:10.2/y", &long_error),
+            ],
+        );
+
+        let d = compute(&old, &new);
+        let out = render(&old, &new, &d);
+        assert_eq!(
+            out.matches(long_error.as_str()).count(),
+            1,
+            "one message shared by two Identities on the same Provider must appear once"
+        );
+        assert!(out.contains("doi:10.1/x"));
+        assert!(out.contains("doi:10.2/y"));
+    }
+
+    #[test]
+    fn render_leaves_a_short_failed_message_out_of_provider_notes() {
+        let short_error = "rate limited (429)";
+        let old = snapshot_at(0, vec![]);
+        let new = snapshot_at(
+            100,
+            vec![failed_result("openalex", "doi:10.1/x", short_error)],
+        );
+
+        let d = compute(&old, &new);
+        let out = render(&old, &new, &d);
+        assert!(!out.contains("── Provider Notes ──"));
     }
 }

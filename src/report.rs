@@ -122,6 +122,20 @@ pub fn render_terminal(snapshot: &Snapshot) -> String {
         }
     }
 
+    let provider_notes = provider_operational_notes(snapshot);
+    if !provider_notes.is_empty() {
+        out.push_str("\n── Provider Notes ──\n");
+        for note in provider_notes {
+            out.push_str(&format!(
+                "  {} ({}): {} — {}\n",
+                note.provider,
+                note.kind.label(),
+                note.message,
+                format_covered_identities(&note.identities),
+            ));
+        }
+    }
+
     if snapshot.has_failures() {
         out.push_str(
             "\n⚠ partial snapshot: some metrics failed to fetch (see FAILED rows); exit code 1.\n",
@@ -215,6 +229,20 @@ pub fn render_markdown(snapshot: &Snapshot) -> String {
         out.push_str("\n## Notices\n\n");
         for notice in notices {
             out.push_str(&format!("- {notice}\n"));
+        }
+    }
+
+    let provider_notes = provider_operational_notes(snapshot);
+    if !provider_notes.is_empty() {
+        out.push_str("\n## Provider Notes\n\n");
+        for note in provider_notes {
+            out.push_str(&format!(
+                "- **{}** ({}): {} — {}\n",
+                escape_md_cell(note.provider),
+                note.kind.label(),
+                escape_md_cell(note.message),
+                escape_md_cell(&format_covered_identities(&note.identities)),
+            ));
         }
     }
 
@@ -422,6 +450,88 @@ pub(crate) fn provider_notices(snapshot: &Snapshot) -> Vec<String> {
     notices
 }
 
+/// Which Outcome a [`ProviderNote`] came from. Kept in the dedup key
+/// alongside Provider (ADR-0002/ADR-0008): a `NotApplicable` and a `Failed`
+/// must never merge even when their text happens to match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutcomeKind {
+    NotApplicable,
+    Failed,
+}
+
+impl OutcomeKind {
+    /// Matches the value shown in the row's own Value column, so the footer
+    /// entry and the row it explains use the same word.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            OutcomeKind::NotApplicable => "N/A",
+            OutcomeKind::Failed => "FAILED",
+        }
+    }
+}
+
+/// One `── Provider Notes ──` entry: a `NotApplicable`/`Failed` message over
+/// [`INLINE_DETAIL_LIMIT`], with every Identity it was seen on. Structured
+/// rather than pre-formatted so `render_terminal` and `render_markdown` (and
+/// potentially `diff::render`, see #64) can each frame it their own way.
+pub(crate) struct ProviderNote<'a> {
+    pub provider: &'a str,
+    pub kind: OutcomeKind,
+    pub message: &'a str,
+    pub identities: Vec<&'a str>,
+}
+
+/// Sibling to [`provider_notices`]: scans `NotApplicable`/`Failed` Outcomes
+/// instead of `Metric.note`, since neither Outcome carries a Metric for
+/// `provider_notices` to find (ADR-0008 — this is deliberately a new
+/// function, not a widening of `provider_notices`, which stays scoped to
+/// licence-notice text). Dedups on `(provider, outcome kind, message)` in
+/// first-seen order; Identity is excluded from the key so one shared message
+/// collapses to a single entry naming every Identity it covers.
+pub(crate) fn provider_operational_notes(snapshot: &Snapshot) -> Vec<ProviderNote<'_>> {
+    let mut notes: Vec<ProviderNote<'_>> = Vec::new();
+    for result in &snapshot.results {
+        let (kind, message) = match &result.outcome {
+            Outcome::NotApplicable { note } => (OutcomeKind::NotApplicable, note.as_str()),
+            Outcome::Failed { error } => (OutcomeKind::Failed, error.as_str()),
+            Outcome::Values { .. } => continue,
+        };
+        if message.len() <= INLINE_DETAIL_LIMIT {
+            continue;
+        }
+        match notes
+            .iter_mut()
+            .find(|n| n.provider == result.provider && n.kind == kind && n.message == message)
+        {
+            Some(existing) => existing.identities.push(&result.identity),
+            None => notes.push(ProviderNote {
+                provider: &result.provider,
+                kind,
+                message,
+                identities: vec![&result.identity],
+            }),
+        }
+    }
+    notes
+}
+
+/// A [`ProviderNote`]'s covered Identities may run to hundreds under an
+/// ORCID expansion (ADR-0006, ~118 works); past a small threshold the list is
+/// truncated to `a, b, c, and N more` so one shared message doesn't turn its
+/// own footer entry into a wall of identifiers.
+const IDENTITY_PREVIEW_LIMIT: usize = 3;
+
+fn format_covered_identities(identities: &[&str]) -> String {
+    if identities.len() <= IDENTITY_PREVIEW_LIMIT {
+        let owned: Vec<String> = identities.iter().map(|s| s.to_string()).collect();
+        join_with_and(&owned)
+    } else {
+        let shown = identities[..IDENTITY_PREVIEW_LIMIT].join(", ");
+        let more = identities.len() - IDENTITY_PREVIEW_LIMIT;
+        format!("{shown}, and {more} more")
+    }
+}
+
 /// Build the display rows for one identity and Category from the Snapshot.
 /// A `Values` outcome buckets each Metric by its *own* `category` — a single
 /// Provider fetch can carry Metrics belonging to different Categories (e.g.
@@ -576,6 +686,205 @@ mod tests {
             1,
             "a notice shared by two Identities must appear once per run, not once per Identity"
         );
+    }
+
+    #[test]
+    fn long_not_applicable_and_failed_messages_reach_provider_notes_in_both_renderers() {
+        // The original defect: a NotApplicable/Failed message over
+        // INLINE_DETAIL_LIMIT had no promotion path at all and vanished
+        // silently from both renderers. This is the regression test the
+        // fix's brief calls out as the criterion that matters most.
+        let na_note = "x".repeat(141);
+        let failed_error = "y".repeat(155);
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "dimensions".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::NotApplicable {
+                    note: na_note.clone(),
+                },
+            },
+            FetchResult {
+                provider: "altmetric".into(),
+                identity: "doi:10.2/y".into(),
+                category: Category::Attention,
+                outcome: Outcome::Failed {
+                    error: failed_error.clone(),
+                },
+            },
+        ]);
+        snap.identities = vec!["doi:10.1/x".into(), "doi:10.2/y".into()];
+
+        let terminal = render_terminal(&snap);
+        assert!(
+            terminal.contains(&na_note),
+            "long NotApplicable note missing from terminal output"
+        );
+        assert!(
+            terminal.contains(&failed_error),
+            "long Failed error missing from terminal output"
+        );
+        assert!(terminal.contains("── Provider Notes ──"));
+
+        let markdown = render_markdown(&snap);
+        assert!(
+            markdown.contains(&na_note),
+            "long NotApplicable note missing from markdown output"
+        );
+        assert!(
+            markdown.contains(&failed_error),
+            "long Failed error missing from markdown output"
+        );
+        assert!(markdown.contains("## Provider Notes"));
+    }
+
+    #[test]
+    fn short_not_applicable_note_still_renders_inline_control() {
+        let mut snap = snapshot_with(vec![FetchResult {
+            provider: "openalex".into(),
+            identity: "doi:10.2/y".into(),
+            category: Category::Citations,
+            outcome: Outcome::NotApplicable {
+                note: "not found in OpenAlex".into(),
+            },
+        }]);
+        snap.identities = vec!["doi:10.2/y".into()];
+
+        let terminal = render_terminal(&snap);
+        let row = terminal.lines().find(|l| l.contains("openalex")).unwrap();
+        assert!(row.contains("not found in OpenAlex"));
+        assert!(!terminal.contains("── Provider Notes ──"));
+    }
+
+    #[test]
+    fn long_metric_note_still_lands_in_notices_not_provider_notes() {
+        let long_note = "x".repeat(120);
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "dimensions".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Citations,
+            outcome: Outcome::Values {
+                metrics: vec![Metric {
+                    note: Some(long_note.clone()),
+                    provider: "dimensions".into(),
+                    ..metric("citations", MetricValue::Count(5))
+                }],
+                metadata: None,
+            },
+        }]);
+        let out = render_terminal(&snap);
+        assert!(out.contains("── Notices ──"));
+        assert!(!out.contains("── Provider Notes ──"));
+        let notices_and_after = out.split("── Notices ──").nth(1).unwrap();
+        assert!(!notices_and_after.contains("Provider Notes"));
+    }
+
+    #[test]
+    fn one_message_shared_by_several_identities_on_one_provider_and_kind_is_one_entry() {
+        let note = "n".repeat(90);
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "altmetric".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Attention,
+                outcome: Outcome::NotApplicable { note: note.clone() },
+            },
+            FetchResult {
+                provider: "altmetric".into(),
+                identity: "doi:10.2/y".into(),
+                category: Category::Attention,
+                outcome: Outcome::NotApplicable { note: note.clone() },
+            },
+        ]);
+        snap.identities = vec!["doi:10.1/x".into(), "doi:10.2/y".into()];
+
+        let out = render_terminal(&snap);
+        assert_eq!(
+            out.matches(note.as_str()).count(),
+            1,
+            "one message shared by two Identities on the same Provider+kind must appear once"
+        );
+        assert!(out.contains("doi:10.1/x"));
+        assert!(out.contains("doi:10.2/y"));
+    }
+
+    #[test]
+    fn identical_text_from_two_providers_produces_two_entries() {
+        let note = "n".repeat(90);
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "altmetric".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Attention,
+                outcome: Outcome::NotApplicable { note: note.clone() },
+            },
+            FetchResult {
+                provider: "dimensions".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::NotApplicable { note: note.clone() },
+            },
+        ]);
+        snap.identities = vec!["doi:10.1/x".into()];
+
+        let out = render_terminal(&snap);
+        assert_eq!(
+            out.matches(note.as_str()).count(),
+            2,
+            "byte-identical text from two Providers must not merge"
+        );
+        assert!(out.contains("altmetric"));
+        assert!(out.contains("dimensions"));
+    }
+
+    #[test]
+    fn not_applicable_and_failed_with_identical_text_produce_two_entries() {
+        let text = "z".repeat(90);
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "altmetric".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Attention,
+                outcome: Outcome::NotApplicable { note: text.clone() },
+            },
+            FetchResult {
+                provider: "altmetric".into(),
+                identity: "doi:10.2/y".into(),
+                category: Category::Attention,
+                outcome: Outcome::Failed {
+                    error: text.clone(),
+                },
+            },
+        ]);
+        snap.identities = vec!["doi:10.1/x".into(), "doi:10.2/y".into()];
+
+        let out = render_terminal(&snap);
+        assert_eq!(
+            out.matches(text.as_str()).count(),
+            2,
+            "a NotApplicable and a Failed with byte-identical text must not merge"
+        );
+    }
+
+    #[test]
+    fn provider_notes_rows_gain_no_marker_pointer_or_preview() {
+        let note = "n".repeat(90);
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "altmetric".into(),
+            identity: "doi:10.1/x".into(),
+            category: Category::Attention,
+            outcome: Outcome::NotApplicable { note: note.clone() },
+        }]);
+        let out = render_terminal(&snap);
+        let row = out
+            .lines()
+            .find(|l| l.contains("altmetric") && l.contains("N/A"))
+            .unwrap();
+        // The row itself carries no truncated preview and no "see below"
+        // pointer — the footer is the only place the text appears.
+        assert!(!row.contains(&note[..20]));
+        assert!(!row.to_lowercase().contains("see below"));
     }
 
     #[test]

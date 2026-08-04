@@ -44,7 +44,7 @@ Prebuilt binaries (Linux x86_64/aarch64/armv7 — all statically linked, musl �
 x86_64/aarch64, Windows x86_64) are attached to every
 [GitHub Release](https://github.com/mbhall88/boast/releases).
 
-## Your first Report
+## Your first report
 
 Point `boast about` at anything with a DOI, and it prints a Report straight to your
 terminal — no config, no Manifest, no account:

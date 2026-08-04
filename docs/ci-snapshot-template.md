@@ -1,4 +1,4 @@
-# CI pattern: snapshot on a schedule, commit the history
+# Snapshot history in CI
 
 A copy-paste GitHub Actions workflow for *your own* repo (not boast's) that runs `boast
 about` on a schedule, commits the resulting Snapshot, and keeps a rolling Markdown Report
@@ -108,8 +108,8 @@ jobs:
 - **Snapshot directory** — `--snapshot-dir snapshots` (boast's own default). Snapshots are
   named by boast itself from the run timestamp (`YYYYMMDDTHHMMSSZ.json` when driven by bare
   identifiers) — already unique, already lexically sortable, already carrying the as-of time.
-  Driven by a Manifest, as this template is, boast additionally suffixes the filename with
-  the Project's own identity (e.g. `20260301T030001Z-doi-10.1234-journal.xyz.json`) so that
+  When a Manifest drives the run, boast also suffixes the filename with the Project's own
+  identity (e.g. `20260301T030001Z-doi-10.1234-journal.xyz.json`) so that
   multiple Projects sharing one Manifest never collide — still lexically sortable, just not a
   bare timestamp.
 - **Report filename** — `IMPACT.md`, overwritten every run rather than timestamped. It's
@@ -126,7 +126,7 @@ an easy thing to have picked up from a template that assumed the opposite.
 the entire point of this workflow — and you can't `diff` two of them without downloading
 both by hand first. A committed file has neither problem.
 
-### Scope: one Project per Manifest
+### One Project per Manifest
 
 This template's "Regenerate the rolling report" step renders whichever Snapshot file sorts
 last — correct as long as your Manifest lists a single `[[project]]` (the common case:

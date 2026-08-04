@@ -1,4 +1,4 @@
-# Provider licence/terms notices surface in Reports, once per run — not in logs
+# Provider licence notices belong in Reports, not logs
 
 ## Status
 
@@ -6,7 +6,7 @@ accepted — refined by ADR-0008, which scopes this footer to licence/terms text
 
 ## Context and decision
 
-Some Providers' terms require visible attribution wherever their data is displayed — e.g. the Dimensions Metrics API terms ask for "an attribution [on] the page where the metrics are displayed" (added alongside the Dimensions Provider, #8). A `boast` Report is rendered from a Snapshot and can be rendered long after the original fetch: `render`/`diff` work purely offline on stored Snapshot JSON with no re-fetch (ADR-0001). A notice printed only to stderr during the original `about` run would not exist by the time someone later runs `render` on the saved Snapshot, hands the Snapshot file to a teammate, or pastes a rendered Report into a grant draft — arguably the paradigmatic "page where the metrics are displayed."
+Some Providers' terms require visible attribution wherever their data is displayed — e.g. the Dimensions Metrics API terms ask for "an attribution [on] the page where the metrics are displayed" (added alongside the Dimensions Provider, #8). A `boast` Report is rendered from a Snapshot and can be rendered long after the original fetch: `render`/`diff` work purely offline on stored Snapshot JSON with no re-fetch (ADR-0001). A notice printed only to stderr during the original `about` run would not exist by the time someone later runs `render` on the saved Snapshot, hands the Snapshot file to a teammate, or pastes a rendered Report into a grant draft. In all of those cases, the Report is the page where the metrics are displayed.
 
 So a Provider's licence/terms notice is recorded on the Metric it accompanies (`Metric.note`), inside the Snapshot, so it survives serialization and offline re-rendering — and it is shown in the Report, not logged. To avoid repeating the same notice once per Identity (e.g. several DOIs all carrying the same Dimensions boilerplate), the terminal Report treats any note past a length threshold as a Provider-level notice rather than a per-row interpretive gloss, de-duplicates by exact text, and prints each distinct notice once in a footer section — so a run over many DOIs still shows the notice exactly once, not once per DOI.
 

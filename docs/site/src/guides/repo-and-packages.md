@@ -1,4 +1,4 @@
-# A tool with a repo and packages
+# A tool with a repository and packages
 
 The common case for research software: a GitHub repository, one or more package
 registries, and (usually) a paper describing it. Giving boast all three means every
@@ -94,7 +94,7 @@ identities = [
 ]
 ```
 
-## Ranking within a Cohort
+## Ranking within a cohort
 
 If the repo is tagged with a GitHub topic (or you want to force one), boast can report
 where it ranks by stars among every repo sharing that topic:

@@ -6,7 +6,7 @@ accepted
 
 ## Context and decision
 
-`boast` is meant to be trivially installable and distributable everywhere (crates.io, Bioconda, Homebrew) and to cross-compile seamlessly, including to static `*-musl` targets. The classic blocker to that is a dependency that links a host C library — above all **OpenSSL**, which routinely breaks cross-compilation and static linking.
+`boast` is meant to be trivially installable and distributable everywhere (crates.io, Bioconda, Homebrew) and to cross-compile cleanly, including to static `*-musl` targets. The classic blocker to that is a dependency that links a host C library — above all **OpenSSL**, which routinely breaks cross-compilation and static linking.
 
 We therefore adopt a dependency policy: **no crate that requires a host-installed native library.** Concretely:
 

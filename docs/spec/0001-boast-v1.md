@@ -1,8 +1,8 @@
 # boast v1 — a reproducible research-impact aggregator
 
-## Problem Statement
+## Problem statement
 
-When I write grant proposals, progress reports, or promotional material for a piece of research software (I work in bioinformatics, but this generalises), I regularly need to make evidence-backed statements about the tool's reach and impact: how many downloads it has had, how many times its paper has been cited, how many GitHub stars it has, and how it stands relative to similar work. Today I assemble these numbers by hand from a scatter of sources — GitHub, Bioconda, PyPI, OpenAlex, Dimensions, and more. That is tedious, easy to get wrong, impossible to reproduce, and hard to defend after the fact ("what exactly were the numbers on the day I quoted them?"). I want one robust, reproducible way to gather these metrics and turn them into a dated, quotable summary — and I want it to be good enough that other people can use it too.
+When I write grant proposals, progress reports, or promotional material for a piece of research software (I work in bioinformatics, but this generalises), I regularly need to make evidence-backed statements about the tool's reach and impact: how many downloads it has had, how many times its paper has been cited, how many GitHub stars it has, and how it stands relative to similar work. Today I assemble these numbers by hand from a scatter of sources — GitHub, Bioconda, PyPI, OpenAlex, Dimensions, and more. That is tedious, easy to get wrong, impossible to reproduce, and hard to defend after the fact ("what exactly were the numbers on the day I quoted them?"). I want one reliable, reproducible way to gather these metrics and turn them into a dated, quotable summary — and I want it to be good enough that other people can use it too.
 
 ## Solution
 
@@ -10,7 +10,7 @@ When I write grant proposals, progress reports, or promotional material for a pi
 
 The name reads as a sentence: `boast about samtools`.
 
-## User Stories
+## User stories
 
 1. As a tool author, I want to look up my tool's impact metrics with a single command, so that I can stop assembling them by hand from many websites.
 2. As a grant writer, I want a dated summary of a tool's reach, so that I can make defensible claims in a proposal.
@@ -18,7 +18,7 @@ The name reads as a sentence: `boast about samtools`.
 4. As a tool author, I want to describe my Project by one or more distribution packages (e.g. `conda:bioconda/samtools`, `pypi:pysam`, `crates:boast`), so that I can get download counts per channel.
 5. As a researcher, I want to describe my Project by a paper's DOI, so that I can get its citation metrics.
 6. As a researcher, I want to give a PubMed ID instead of a DOI (`pmid:31234567`), so that I can use whichever identifier I have to hand.
-7. As a user, I want a bare DOI/PMID/repo on the command line to "just work" without a subcommand, so that the common one-off case is frictionless.
+7. As a user, I want a bare DOI/PMID/repo on the command line to "just work" without a subcommand, so that the common one-off case needs no extra steps.
 8. As a user, I want to combine a repo, packages, and a paper into one Project, so that I get a single aggregated impact story rather than three separate lookups.
 9. As a user with several tools, I want to list many Projects in one Manifest file, so that I can gather metrics for all of them in a batch.
 10. As a user, I want the tool to generate a Manifest for me from a run, so that I never have to hand-author a config file to get reproducibility.
@@ -53,7 +53,7 @@ The name reads as a sentence: `boast about samtools`.
 39. As a user, I want every run to write a durable Snapshot recording each Metric's value, Provider, Identity, as-of timestamp, coverage Window, and source, so that my numbers are reproducible and attributable.
 40. As a user, I want Snapshots to be append-only files I can commit next to my grant draft, so that I have a permanent record of what I quoted and when.
 41. As a user, I want to re-render an old Snapshot into a report without re-fetching, so that I can reproduce previously quoted figures exactly.
-42. As a user, I want `boast about` to always fetch live, so that a Snapshot's timestamp truly means "these numbers were real at this instant."
+42. As a user, I want `boast about` to always fetch live, so that a Snapshot's timestamp means "these numbers were real at this instant."
 43. As a user, I want `render` and `diff` to never touch the network, so that I can work with captured data offline and deterministically.
 44. As a user, I want to diff two Snapshots, so that I can show growth over time (e.g. citations or stars gained).
 45. As a user, I want a pretty terminal table by default, so that a bare run is immediately useful.
@@ -71,7 +71,7 @@ The name reads as a sentence: `boast about samtools`.
 57. As a user, I want the Report to group metrics by Category (Code, Downloads, Citations, Attention), so that the summary is easy to read.
 58. As a user, I want partial data visibly flagged in the Report, so that I don't accidentally quote incomplete results.
 
-## Implementation Decisions
+## Implementation decisions
 
 - **Language / form factor.** A Rust CLI plus an importable library crate. MIT licensed. Distributed via crates.io, Bioconda, and Homebrew.
 - **Central entity.** A **Project** aggregates zero or more **Identities**, each of a known kind: a code repository, a distribution package (registry + name), or a paper (DOI/PMID). A paper-only lookup is a Project with a single paper Identity.
@@ -85,14 +85,14 @@ The name reads as a sentence: `boast about samtools`.
 - **Ranking.** Paper "standing among similar work" is delivered by the field-normalized metrics that already exist for free (OpenAlex percentile/FWCI, Dimensions FCR/RCR), not a hand-rolled ranking. Repo peer comparison is a GitHub-**topic** Cohort (rank by stars among repos with a topic); the topic is read from the repo's own topics or set explicitly, and every Cohort result names its topic and discloses that topics are inconsistently applied.
 - **Snapshot-centric architecture** (see ADR-0001). `boast about` fetches live and writes a timestamped, append-only, machine-readable **Snapshot** with full provenance; **Reports** are always rendered from Snapshots and never fetch. `about` is always-live (no cross-run cache); `render`/`diff` are always-offline. Snapshots carry a versioned schema. There is deliberately no "patch one Provider into an existing Snapshot" — a re-run makes a fresh, internally-consistent Snapshot.
 - **Metric honesty model** (see ADR-0002). Every Provider×Identity fetch resolves to exactly one **Outcome**: `Value`, `NotApplicable` (shown N/A, never 0), or `Failed` (the error is recorded, never 0). Every Metric carries a coverage **Window** (cumulative / trailing / periodic); a **Rollup** may only combine compatible Windows and must name its members. Runs are best-effort with retries/backoff and exit non-zero if any `Failed` outcomes remain.
-- **Data-source strategy and deliberate exclusions** (see ADR-0003). Notably: no Google Scholar (no API, ToS, fragile); Altmetric is key-gated since 10 Nov 2025; Crossref Event Data was sunset 23 Apr 2026 (hence keyless attention is "lite"); GitHub "used by"/dependents is opt-in only (scraped, no API); issue/PR counts omitted from defaults.
+- **Data-source strategy and deliberate exclusions** (see ADR-0003). This excludes Google Scholar (no API, ToS, fragile); Altmetric is key-gated since 10 Nov 2025; Crossref Event Data was sunset 23 Apr 2026 (hence keyless attention is "lite"); GitHub "used by"/dependents is opt-in only (scraped, no API); issue/PR counts omitted from defaults.
 - **CLI shape.** Subcommands: `boast about <thing>` (fetch → Snapshot → terminal Report), `render` (Snapshot → Markdown/prose/…, offline), `diff` (Snapshot × Snapshot, offline), `providers` (list/status), `init` (write a Manifest). A bare identifier implies `about`.
 - **Configuration and secrets.** The Manifest holds Projects only and is committable. Secrets (`GITHUB_TOKEN`, `ALTMETRIC_KEY`, …) come from the environment / `.env`; the polite-pool contact email from env or a user config file. The tool warns when no GitHub token is present.
 - **Report formats (v1).** Terminal table (default), Markdown (primary saved artifact), and a prose snippet. JSON Snapshot always written. HTML (with over-time charts) and CSV are later renderers over the same Snapshot.
 - **HTTP transport abstraction.** All Provider network access flows through a single transport trait — the one injected seam (see Testing Decisions).
 - **No host-native dependencies** (see ADR-0004). No crate that requires a host-installed native library. TLS is **rustls**, never OpenSSL/`native-tls` (e.g. `reqwest` with `default-features = false` + `rustls-tls`, or a rustls-based client such as `ureq`); pure-Rust crates are preferred and `*-sys` crates avoided, so cross-compilation and static `*-musl` builds just work. The concrete HTTP client sits behind the transport seam, so it stays swappable. CI builds/releases static musl targets to prove the constraint.
 
-## Testing Decisions
+## Testing decisions
 
 - **What makes a good test here.** Tests assert *external behavior* — the Outcome and Metrics a Provider produces from a given API response, the contents of a rendered Report, the result of a diff — never internal structure. Because the whole tool is built for honesty, the highest-value tests are the ones that pin the honesty rules: a 404 becomes `NotApplicable` (not 0), a 429/timeout becomes `Failed` (not 0), and incompatible Windows refuse to Rollup.
 - **The single seam: the HTTP transport.** Every Provider reaches the network through one transport trait. In tests this trait returns *recorded real API responses* (cassette/fixture style, captured once from the live APIs — OpenAlex, GitHub, Bioconda/anaconda, PyPI, crates.io, Homebrew, Crossref, Europe PMC, Dimensions — and refreshed deliberately). This one seam deterministically and offline exercises: each Provider's response parsing; Outcome classification; the orchestrator assembling a Snapshot from multiple Providers; and retry/backoff (transport yields 429 then 200).
@@ -101,7 +101,7 @@ The name reads as a sentence: `boast about samtools`.
 - **Modules tested:** each default Provider (parsing + Outcome), the fetch orchestrator, the Snapshot model + serialization, the Rollup/Window logic, each Renderer, `diff`, and the CLI wiring.
 - **Prior art.** This is a greenfield repo; this spec establishes the fixture/cassette pattern as the project's first test harness. Subsequent Providers should follow the same recorded-response convention.
 
-## Out of Scope
+## Out of scope
 
 - **Auto-discovery** of a Project's identities from a bare name or a single anchor (reading `CITATION.cff`, mapping a repo to a package, etc.). v1 requires identities to be given explicitly; discovery is a later, clearly-labelled helper.
 - **Google Scholar** in any form (see ADR-0003).
@@ -113,8 +113,8 @@ The name reads as a sentence: `boast about samtools`.
 - **Issue/PR counts** — omitted as activity/maintenance signals rather than reach.
 - **Any database or server-side state** — Snapshots are files.
 
-## Further Notes
+## Further notes
 
 - The differentiator versus an ad-hoc script is *provenance and reproducibility*: dated, attributable Snapshots you can commit and re-render, plus the honesty rules that make understating-by-accident and silently-overstating both impossible.
-- The external-data landscape shifted materially in late 2025 / early 2026 (Altmetric key-gating; Crossref Event Data sunset). ADR-0003 records why the default sources look the way they do so these choices aren't re-litigated later.
+- The external data sources changed materially in late 2025 and early 2026 (Altmetric key-gating; Crossref Event Data sunset). ADR-0003 records why the default sources look the way they do so these choices aren't re-litigated later.
 - The domain vocabulary used throughout (Project, Identity, Provider, Metric, Window, Rollup, Outcome, Snapshot, Report, Cohort, Category, Manifest) is defined in `CONTEXT.md`.

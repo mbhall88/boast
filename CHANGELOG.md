@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/mbhall88/boast/compare/0.2.0...0.2.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* stop release-please from skipping tag creation on release ([28c3091](https://github.com/mbhall88/boast/commit/28c309143fb7fc1cf87d43251e06544cdb9d32cd))
+
 ## [0.2.0](https://github.com/mbhall88/boast/compare/0.1.1...0.2.0) (2026-08-03)
 
 

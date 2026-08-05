@@ -7,7 +7,7 @@ Category — Code, Downloads, Citations, Attention — has something to report o
 ```
 boast about --repo samtools/samtools \
             --package conda:bioconda/samtools \
-            10.1371/journal.pbio.1002195
+            10.1093/gigascience/giab008
 ```
 
 `--package` is repeatable — list every registry the tool is published on. samtools is
@@ -17,7 +17,7 @@ also on Homebrew, so:
 boast about --repo samtools/samtools \
             --package conda:bioconda/samtools \
             --package homebrew:samtools \
-            10.1371/journal.pbio.1002195
+            10.1093/gigascience/giab008
 ```
 
 Output (Code, Downloads per channel, and a Downloads Rollup — Citations/Attention are
@@ -105,7 +105,7 @@ Manifest capturing exactly the identities (and `--topic`, if given) used in this
 boast about --repo samtools/samtools \
             --package conda:bioconda/samtools \
             --save manifest.toml \
-            10.1371/journal.pbio.1002195
+            10.1093/gigascience/giab008
 ```
 
 From then on:
@@ -119,7 +119,7 @@ You can also build a Manifest up front, without fetching anything, via `boast in
 
 ```
 boast init --repo samtools/samtools --package conda:bioconda/samtools \
-           --package homebrew:samtools -o manifest.toml 10.1371/journal.pbio.1002195
+           --package homebrew:samtools -o manifest.toml 10.1093/gigascience/giab008
 ```
 
 `manifest.toml` now contains, offline, with nothing fetched:
@@ -127,7 +127,7 @@ boast init --repo samtools/samtools --package conda:bioconda/samtools \
 ```toml
 [[project]]
 identities = [
-    "doi:10.1371/journal.pbio.1002195",
+    "doi:10.1093/gigascience/giab008",
     "github:samtools/samtools",
     "conda:bioconda/samtools",
     "homebrew:samtools",
@@ -140,7 +140,7 @@ If the repo is tagged with a GitHub topic (or you want to force one), boast can 
 where it ranks by stars among every repo sharing that topic:
 
 ```
-boast about --repo samtools/samtools --topic bioinformatics 10.1371/journal.pbio.1002195
+boast about --repo samtools/samtools --topic bioinformatics 10.1093/gigascience/giab008
 ```
 
 The Code section gains a `cohort_rank` row, and a matching disclaimer appears in

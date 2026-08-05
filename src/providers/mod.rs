@@ -11,6 +11,7 @@ pub mod github;
 pub mod homebrew;
 pub mod openalex;
 pub mod pypi;
+pub mod quay;
 pub mod wikipedia;
 
 use crate::model::{Category, Identity, PaperId};
@@ -38,6 +39,7 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
         Box::new(pypi::Pypi),
         Box::new(homebrew::Homebrew),
         Box::new(docker_hub::DockerHub),
+        Box::new(quay::Quay),
     ]
 }
 

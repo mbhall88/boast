@@ -161,7 +161,7 @@ pub struct AboutArgs {
     /// more than one request is in flight against the *same* host no matter
     /// how high this is set (ADR-0007). Raising it past the number
     /// of hosts a Project actually touches (at most the Provider registry's
-    /// size, ~11 by default) buys nothing; lower it to open fewer
+    /// size, ~13 by default) buys nothing; lower it to open fewer
     /// simultaneous connections.
     #[arg(
         short = 'j',

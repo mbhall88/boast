@@ -302,6 +302,10 @@ pub enum Registry {
     /// name, since every image lives under an account or organisation —
     /// official images under `library`, e.g. `library/ubuntu`.
     Docker,
+    /// Quay.io, where Bioconda's auto-built per-package containers live
+    /// (`biocontainers/<pkg>`). Namespaced exactly like [`Registry::Docker`],
+    /// and for the same reason.
+    Quay,
 }
 
 impl Registry {
@@ -314,6 +318,7 @@ impl Registry {
         Registry::Pypi,
         Registry::Homebrew,
         Registry::Docker,
+        Registry::Quay,
     ];
 
     fn prefix(self) -> &'static str {
@@ -323,6 +328,7 @@ impl Registry {
             Registry::Pypi => "pypi",
             Registry::Homebrew => "homebrew",
             Registry::Docker => "docker",
+            Registry::Quay => "quay",
         }
     }
 
@@ -333,6 +339,7 @@ impl Registry {
             "pypi" => Some(Registry::Pypi),
             "homebrew" => Some(Registry::Homebrew),
             "docker" => Some(Registry::Docker),
+            "quay" => Some(Registry::Quay),
             _ => None,
         }
     }
@@ -342,11 +349,12 @@ impl Registry {
     /// bare name arrives. `None` means a bare package name already
     /// identifies the package on its own.
     ///
-    /// Two registries need this for the same underlying reason: Anaconda.org
-    /// spans many independently-run channels, and Docker Hub namespaces every
-    /// image under an account, so in both cases a bare name names nothing in
-    /// particular. Kept as one rule rather than a per-registry branch in
-    /// `parse`, so a third such registry only adds an arm here.
+    /// These registries need this for the same underlying reason: Anaconda.org
+    /// spans many independently-run channels, and both container registries
+    /// namespace every image under an account, so in each case a bare name
+    /// names nothing in particular. Kept as one rule rather than a
+    /// per-registry branch in `parse`, so a further such registry only adds an
+    /// arm here.
     fn qualified_name(self) -> Option<(&'static str, &'static str)> {
         match self {
             Registry::Conda => Some((
@@ -356,6 +364,10 @@ impl Registry {
             Registry::Docker => Some((
                 "namespace/name",
                 "'biocontainers/samtools' or 'library/ubuntu'",
+            )),
+            Registry::Quay => Some((
+                "namespace/name",
+                "'biocontainers/samtools' or 'prometheus/prometheus'",
             )),
             Registry::Crates | Registry::Pypi | Registry::Homebrew => None,
         }
@@ -746,6 +758,11 @@ mod tests {
                 "biocontainers/samtools",
             ),
             ("docker:library/ubuntu", Registry::Docker, "library/ubuntu"),
+            (
+                "quay:biocontainers/samtools",
+                Registry::Quay,
+                "biocontainers/samtools",
+            ),
         ] {
             assert_eq!(
                 Identity::parse(input).unwrap(),
@@ -769,6 +786,7 @@ mod tests {
             "pypi:pysam",
             "homebrew:samtools",
             "docker:biocontainers/samtools",
+            "quay:biocontainers/samtools",
         ]
         .map(|s| PackageId::parse(s).unwrap().registry);
 
@@ -791,21 +809,10 @@ mod tests {
 
     #[test]
     fn conda_package_requires_a_channel() {
-        for input in ["conda:samtools", "conda:/samtools", "conda:bioconda/"] {
-            assert!(
-                matches!(
-                    PackageId::parse(input),
-                    Err(IdentityError::QualifiedNameRequired {
-                        registry: "conda",
-                        shape: "channel/name",
-                        ..
-                    })
-                ),
-                "{input}"
-            );
-        }
-        // The rendered message still names the shape and a real example, so the
-        // generalised error reads no worse than the conda-specific one it replaced.
+        // Which shapes are rejected is covered for every qualified-name
+        // registry at once, below; what's pinned here is the wording, since
+        // the rendered message must still name the shape and a real example
+        // and so read no worse than the conda-specific error it replaced.
         let msg = PackageId::parse("conda:samtools").unwrap_err().to_string();
         assert_eq!(
             msg,
@@ -816,19 +823,7 @@ mod tests {
 
     #[test]
     fn docker_package_requires_a_namespace() {
-        for input in ["docker:samtools", "docker:/samtools", "docker:library/"] {
-            assert!(
-                matches!(
-                    PackageId::parse(input),
-                    Err(IdentityError::QualifiedNameRequired {
-                        registry: "docker",
-                        shape: "namespace/name",
-                        ..
-                    })
-                ),
-                "{input}"
-            );
-        }
+        // Wording only; the rejected shapes are covered generically below.
         let msg = PackageId::parse("docker:ubuntu").unwrap_err().to_string();
         assert_eq!(
             msg,
@@ -838,14 +833,57 @@ mod tests {
     }
 
     #[test]
-    fn docker_package_round_trips_through_its_canonical_form() {
-        let id = PackageId::parse("docker:biocontainers/samtools").unwrap();
-        assert_eq!(id.registry, Registry::Docker);
-        assert_eq!(id.name, "biocontainers/samtools");
+    fn quay_package_requires_a_namespace() {
+        // Wording only; the rejected shapes are covered generically below.
+        let msg = PackageId::parse("quay:samtools").unwrap_err().to_string();
         assert_eq!(
-            Identity::Package(id).canonical(),
-            "docker:biocontainers/samtools"
+            msg,
+            "quay package 'samtools' must be 'namespace/name', \
+             e.g. 'biocontainers/samtools' or 'prometheus/prometheus'"
         );
+    }
+
+    /// Driven off `Registry::ALL` rather than a hand-written list, so a
+    /// registry added to the qualified-name rule is covered the moment it
+    /// exists — the per-registry tests above only pin the rendered wording.
+    #[test]
+    fn every_qualified_name_registry_rejects_an_unqualified_name() {
+        let qualified: Vec<Registry> = Registry::ALL
+            .iter()
+            .copied()
+            .filter(|r| r.qualified_name().is_some())
+            .collect();
+        assert!(
+            qualified.len() >= 2,
+            "expected several qualified-name registries, got {qualified:?}"
+        );
+
+        for registry in qualified {
+            let prefix = registry.prefix();
+            for name in ["samtools", "/samtools", "samtools/"] {
+                let input = format!("{prefix}:{name}");
+                assert!(
+                    matches!(
+                        PackageId::parse(&input),
+                        Err(IdentityError::QualifiedNameRequired { .. })
+                    ),
+                    "{input} was accepted without a qualifier"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn container_packages_round_trip_through_their_canonical_form() {
+        for (input, registry) in [
+            ("docker:biocontainers/samtools", Registry::Docker),
+            ("quay:biocontainers/samtools", Registry::Quay),
+        ] {
+            let id = PackageId::parse(input).unwrap();
+            assert_eq!(id.registry, registry, "{input}");
+            assert_eq!(id.name, "biocontainers/samtools", "{input}");
+            assert_eq!(Identity::Package(id).canonical(), input);
+        }
     }
 
     /// Registries that take a bare name must not be dragged into the
@@ -898,6 +936,7 @@ mod tests {
         for (input, registry) in [
             ("conda:bioconda/samtools", Registry::Conda),
             ("docker:biocontainers/samtools", Registry::Docker),
+            ("quay:biocontainers/samtools", Registry::Quay),
         ] {
             assert!(
                 matches!(

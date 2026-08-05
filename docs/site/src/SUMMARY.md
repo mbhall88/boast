@@ -21,3 +21,4 @@
   - [0007 — Parallel across hosts, serial within a host](./design/0007-parallel-across-hosts-serial-within-a-host.md)
   - [0008 — Operational Provider notes are not licence notices](./design/0008-operational-notes-are-not-licence-notices.md)
   - [0009 — Container pulls roll up, with the caveat travelling](./design/0009-container-pulls-roll-up-with-a-travelling-caveat.md)
+  - [0010 — An unreadable channel is NotApplicable, not Failed](./design/0010-unreadable-is-not-unretrieved.md)

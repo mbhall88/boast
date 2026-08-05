@@ -58,12 +58,21 @@ serves, and which package registries they cover.
 
 ## Container images
 
-Many research tools also ship as a container. Docker Hub images are addressed as
-`docker:namespace/name` — official images live under `library`, so `ubuntu` is
-`docker:library/ubuntu`:
+Many research tools also ship as a container, on two registries boast covers:
+
+- **Docker Hub**, as `docker:namespace/name`. Official images live under `library`, so
+  `ubuntu` is `docker:library/ubuntu`.
+- **Quay.io**, as `quay:namespace/name`. This is where Bioconda's auto-built per-package
+  containers live, so a bioconda recipe gets you `quay:biocontainers/<pkg>` for free.
+
+If you package for Bioconda, reach for Quay. The `biocontainers/` organisation on Docker
+Hub is an older, hand-curated set — its `samtools` image was last pushed in 2019 — while
+`quay.io/biocontainers` is what the build system actually publishes to, and where the
+traffic actually goes:
 
 ```
-boast about --package docker:biocontainers/samtools \
+boast about --package quay:biocontainers/samtools \
+            --package docker:biocontainers/samtools \
             --package conda:bioconda/samtools
 ```
 
@@ -71,28 +80,57 @@ Captured on a later day than the run above, so bioconda's count has moved on —
 the point of Snapshots being dated:
 
 ```
+━━ quay:biocontainers/samtools ━━
+── Downloads ──
+  pulls  1786502  last 92 days  quay
+
 ━━ docker:biocontainers/samtools ━━
 ── Downloads ──
-  downloads  596335  all-time  dockerhub
+  downloads  596337  all-time  dockerhub
 
 ━━ conda:bioconda/samtools ━━
 ── Downloads ──
-  downloads  9054107  all-time  bioconda
+  downloads  9055038  all-time  bioconda
 
 ═══ Downloads Rollup (derived — see channels above) ═══
-  9650442 all-time = docker:biocontainers/samtools (596335) + conda:bioconda/samtools (9054107)
+  9651375 all-time = docker:biocontainers/samtools (596337) + conda:bioconda/samtools (9055038)
 
 ── Notices ──
+  Quay.io pull counts record image fetches by machines, not installs by people, and CI re-pulls dominate for a biocontainer; Quay publishes only a rolling daily series, so this is not an all-time total
   Docker Hub pull counts record image fetches by machines, not installs by people: CI re-pulls and mirror warming inflate the figure, and it never resets
 ```
 
-Unlike Homebrew, a Docker Hub pull count *is* cumulative, so it shares a Window with the
-conda and crates.io counts and does join the Rollup. Read that total with the Notice in
-mind: a pull is a much weaker signal than an install. Docker Hub counts every image fetch
-by a machine, so CI re-runs and mirror warming land in the same figure, and the counter
-never resets — `docker:library/ubuntu` sits near ten billion. This is why the Rollup
-always names each channel and its own value: the total is only ever as meaningful as the
-channels you can see underneath it.
+Note the scale: three months on Quay is triple the *lifetime* total of the stale Docker
+Hub image.
+
+The two registries land in the Rollup differently, and it's the Window that decides —
+not the fact that both count container pulls:
+
+- **Docker Hub publishes an all-time `pull_count`**, so it shares a cumulative Window
+  with the conda and crates.io counts and joins the Rollup.
+- **Quay publishes only a rolling daily series**, never a lifetime total, so its figure
+  is trailing. `boast` reports the window it actually measured — `last 92 days` above,
+  read off the length of the series Quay returned rather than assumed — and a trailing
+  count can't be summed with all-time ones, so it stays out of the all-time Rollup.
+
+To be precise about the rule: what's excluded is mixing *incompatible* Windows, not
+trailing Windows as such. Metrics sharing an exactly-equal trailing Window do roll up
+together — a Homebrew 30-day install count and a PyPI 30-day download count form their
+own `last 30 days` Rollup, separate from the all-time one. Quay's ~92-day window simply
+has nothing else to pair with today.
+
+Read every container number with its Notice in mind: a pull is a much weaker signal than
+an install. Both registries count image fetches by machines, so CI re-runs and mirror
+warming land in the same figure, and Docker Hub's counter never resets —
+`docker:library/ubuntu` sits near ten billion. This is why the Rollup always names each
+channel and its own value: the total is only ever as meaningful as the channels you can
+see underneath it.
+
+One quirk worth knowing about Quay: it answers a lookup for an image you can't see with
+"requires authentication" rather than "not found", and it does that identically whether
+the image is private or simply doesn't exist. `boast` reports that as N/A with a note
+saying so, not as a failed fetch — no amount of retrying will turn it into a number, so
+it doesn't make your Snapshot partial.
 
 GitHub's container registry (`ghcr.io`) has no equivalent Provider, because GHCR
 publishes no pull statistics — neither the OCI registry API nor GitHub's Packages API

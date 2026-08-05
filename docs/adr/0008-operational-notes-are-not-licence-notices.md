@@ -2,7 +2,7 @@
 
 ## Status
 
-accepted
+accepted — the prose carve-out in Considered options is refined by ADR-0009: what travels into prose is any `Metric.note` attached to a headline number, not only a licence notice. The `Metric.note` versus `NotApplicable`/`Failed` split this ADR establishes is unchanged, and operational messages still stay out of prose.
 
 ## Context and decision
 

@@ -303,7 +303,17 @@ pub fn render_prose(snapshot: &Snapshot) -> String {
         });
         notices.extend(download_notices);
     }
-    notices.dedup();
+    // `Vec::dedup` would only collapse *consecutive* duplicates, and these
+    // arrive from two independent sources — one notice attached to both a
+    // citation and a download Metric would survive it.
+    let mut seen: Vec<String> = Vec::new();
+    notices.retain(|n| {
+        let first_time = !seen.contains(n);
+        if first_time {
+            seen.push(n.clone());
+        }
+        first_time
+    });
 
     let mut sentence = if clauses.is_empty() {
         format!("As of {date}, no headline metrics were available for this Snapshot.")
@@ -314,6 +324,13 @@ pub fn render_prose(snapshot: &Snapshot) -> String {
     for notice in notices {
         sentence.push(' ');
         sentence.push_str(&notice);
+        // Provider notices are written as prose fragments and only sometimes
+        // punctuated (Dimensions' licence text ends in a full stop; the Docker
+        // Hub caveat does not). Terminate any that don't, or two notices run
+        // together into one unreadable sentence.
+        if !notice.ends_with(['.', '!', '?']) {
+            sentence.push('.');
+        }
     }
 
     if snapshot.has_failures() {
@@ -414,9 +431,12 @@ fn headline_downloads(snapshot: &Snapshot) -> Option<(DownloadsHeadline, Vec<Str
 
     let rollups = rollup::compute(downloads.iter().copied());
     if let Some(best) = rollups.into_iter().max_by_key(|r| r.total) {
-        // `compute` groups by exactly-equal Window, so the Metrics sharing the
-        // winning Rollup's Window are precisely the ones that were summed into
-        // it — no need to match channels back up by provider and identity.
+        // `compute` groups by exactly-equal Window, so filtering on the winning
+        // Window recovers the Metrics behind the total without matching
+        // channels back up by provider and identity. It is a superset, strictly:
+        // `compute` also skips non-`Count` values, which this filter keeps. That
+        // errs towards showing a caveat whose Metric didn't make the sum, which
+        // is the safe direction — and no Downloads Provider emits a non-Count.
         let notices = long_notes(
             downloads
                 .iter()
@@ -1514,5 +1534,129 @@ mod tests {
         }]);
         let out = render_prose(&snap);
         assert!(!out.contains("short gloss"));
+    }
+
+    /// ADR-0009: a caveat qualifying a *download* channel must reach prose
+    /// too, not just the terminal footer — prose quotes the total without the
+    /// per-channel breakdown that would otherwise expose the weak channel.
+    #[test]
+    fn render_prose_carries_a_notice_from_a_headline_download_channel() {
+        let notice =
+            "Container pulls count machine fetches rather than installs by people".repeat(2);
+        let mut snap = snapshot_with(vec![
+            downloads_result("bioconda", "conda:bioconda/x", 100, Window::Cumulative),
+            FetchResult {
+                provider: "dockerhub".into(),
+                identity: "docker:ns/x".into(),
+                category: Category::Downloads,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        note: Some(notice.clone()),
+                        provider: "dockerhub".into(),
+                        identity: "docker:ns/x".into(),
+                        category: Category::Downloads,
+                        ..metric("downloads", MetricValue::Count(50))
+                    }],
+                    metadata: None,
+                },
+            },
+        ]);
+        snap.identities = vec!["conda:bioconda/x".into(), "docker:ns/x".into()];
+
+        let out = render_prose(&snap);
+        assert!(out.contains("150"), "the Rollup total should be quoted");
+        assert!(
+            out.contains(&notice),
+            "its caveat must travel with it: {out}"
+        );
+    }
+
+    /// Notices are prose fragments and only sometimes self-punctuated, so two
+    /// of them must not run together into one unreadable sentence.
+    #[test]
+    fn render_prose_terminates_each_notice_so_several_dont_run_together() {
+        let unpunctuated = "a".repeat(120);
+        let punctuated = format!("{}.", "b".repeat(120));
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "dimensions".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        note: Some(punctuated.clone()),
+                        provider: "dimensions".into(),
+                        ..metric("citations", MetricValue::Count(9))
+                    }],
+                    metadata: None,
+                },
+            },
+            downloads_result("bioconda", "conda:bioconda/x", 100, Window::Cumulative),
+            FetchResult {
+                provider: "dockerhub".into(),
+                identity: "docker:ns/x".into(),
+                category: Category::Downloads,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        note: Some(unpunctuated.clone()),
+                        provider: "dockerhub".into(),
+                        identity: "docker:ns/x".into(),
+                        category: Category::Downloads,
+                        ..metric("downloads", MetricValue::Count(50))
+                    }],
+                    metadata: None,
+                },
+            },
+        ]);
+        snap.identities = vec!["conda:bioconda/x".into(), "docker:ns/x".into()];
+
+        let out = render_prose(&snap);
+        // The unpunctuated one gained a stop; the already-punctuated one did
+        // not get a second.
+        assert!(out.contains(&format!("{unpunctuated}.")));
+        assert!(!out.contains(&format!("{punctuated}.")));
+        // And neither notice is glued to whatever follows it.
+        assert!(!out.contains(&format!("{}a", "b".repeat(120))));
+    }
+
+    /// The same notice reaching prose from both a citation and a download
+    /// Metric must be said once. `Vec::dedup` would not catch this, since the
+    /// two arrive from independent sources rather than adjacently.
+    #[test]
+    fn render_prose_says_a_shared_notice_once() {
+        let shared = "s".repeat(120);
+        let mut snap = snapshot_with(vec![
+            FetchResult {
+                provider: "openalex".into(),
+                identity: "doi:10.1/x".into(),
+                category: Category::Citations,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        note: Some(shared.clone()),
+                        ..metric("citations", MetricValue::Count(9))
+                    }],
+                    metadata: None,
+                },
+            },
+            downloads_result("bioconda", "conda:bioconda/x", 100, Window::Cumulative),
+            FetchResult {
+                provider: "dockerhub".into(),
+                identity: "docker:ns/x".into(),
+                category: Category::Downloads,
+                outcome: Outcome::Values {
+                    metrics: vec![Metric {
+                        note: Some(shared.clone()),
+                        provider: "dockerhub".into(),
+                        identity: "docker:ns/x".into(),
+                        category: Category::Downloads,
+                        ..metric("downloads", MetricValue::Count(50))
+                    }],
+                    metadata: None,
+                },
+            },
+        ]);
+        snap.identities = vec!["conda:bioconda/x".into(), "docker:ns/x".into()];
+
+        assert_eq!(render_prose(&snap).matches(shared.as_str()).count(), 1);
     }
 }

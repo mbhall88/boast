@@ -15,7 +15,7 @@ A single measured quantity of reach for a Project. Every Metric carries: a value
 _Avoid_: Stat, statistic, number
 
 **Outcome**:
-The result of one Provider×Identity fetch, always exactly one of: **Value** (a real number), **NotApplicable** (the Identity legitimately has no presence on that channel — shown as N/A, never 0), or **Failed** (a transient error: rate limit, timeout, 5xx, missing key — the number exists but wasn't retrievable). Snapshots record the Outcome explicitly; NotApplicable and Failed are never coerced to 0.
+The result of one Provider×Identity fetch, always exactly one of: **Value** (a real number), **NotApplicable** (the Identity legitimately has no presence on that channel — shown as N/A, never 0), or **Failed** (a transient error: rate limit, timeout, 5xx — the number is obtainable but this attempt didn't get it). What separates the last two is whether retrying could ever help: a channel boast has no credential to read, or no key configured for, is NotApplicable however it announced itself (ADR-0010). Snapshots record the Outcome explicitly; NotApplicable and Failed are never coerced to 0.
 _Avoid_: Status, state, error
 
 **Window**:

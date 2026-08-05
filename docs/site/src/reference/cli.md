@@ -49,7 +49,7 @@ Options:
   -v, --verbose...               Increase logging verbosity (-v info, -vv debug, -vvv trace)
   -q, --quiet                    Silence all logging except errors
   -s, --save <FILE>              After fetching, also write a Manifest reflecting the identities (and `--topic`) used in this run, so a future run can `boast about <file>` instead of re-typing them. Not available when the input is itself a Manifest — use `boast init` to build one up front instead
-  -j, --threads <N>              Maximum number of distinct hosts fetched from concurrently. Never more than one request is in flight against the *same* host no matter how high this is set (ADR-0007). Raising it past the number of hosts a Project actually touches (at most the Provider registry's size, ~11 by default) buys nothing; lower it to open fewer simultaneous connections [default: 8]
+  -j, --threads <N>              Maximum number of distinct hosts fetched from concurrently. Never more than one request is in flight against the *same* host no matter how high this is set (ADR-0007). Raising it past the number of hosts a Project actually touches (at most the Provider registry's size, ~13 by default) buys nothing; lower it to open fewer simultaneous connections [default: 8]
   -h, --help                     Print help
 ```
 

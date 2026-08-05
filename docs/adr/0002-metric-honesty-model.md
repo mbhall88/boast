@@ -2,13 +2,13 @@
 
 ## Status
 
-accepted — rule 2's channel-comparability clause is refined by ADR-0009, which lets a weaker-unit channel join a Rollup provided its caveat travels with the total into every format
+accepted — rule 2's channel-comparability clause is refined by ADR-0009, which lets a weaker-unit channel join a Rollup provided its caveat travels with the total into every format; rule 1's "missing key" example is refined by ADR-0010, which puts a permanently unreadable channel under `NotApplicable` rather than `Failed`
 
 ## Context and decision
 
 `boast` exists to make impact claims that survive scrutiny, so the data model is built to make *understating impossible to do by accident* and *overstating impossible to do silently*. Three rules govern the model:
 
-1. **Three-state Outcome.** Every Provider×Identity fetch resolves to exactly one of `Value` (a real number), `NotApplicable` (the Identity legitimately has no presence on that channel — e.g. samtools has no npm package), or `Failed` (a transient error: rate limit, timeout, 5xx, missing key). `NotApplicable` and `Failed` are **never coerced to 0** — a missing number and a zero number are different facts, and conflating them silently understates a tool's reach.
+1. **Three-state Outcome.** Every Provider×Identity fetch resolves to exactly one of `Value` (a real number), `NotApplicable` (the Identity legitimately has no presence on that channel — e.g. samtools has no npm package), or `Failed` (a transient error: rate limit, timeout, 5xx). `NotApplicable` and `Failed` are **never coerced to 0** — a missing number and a zero number are different facts, and conflating them silently understates a tool's reach. The dividing line is whether a number is *obtainable*: a channel no retry and no available configuration could ever yield — a missing key, or an auth wall boast has no credential for — is `NotApplicable`, not `Failed`. See ADR-0010, which replaces this clause's original "missing key" example.
 
 2. **Windows gate summation.** Every Metric carries a coverage **Window** — `cumulative` (all-time), `trailing` (rolling N days, e.g. Homebrew's 365-day installs), or `periodic` (a named bucket). Metrics may only be combined into a **Rollup** when their Windows are compatible, and a Rollup must name every Metric it includes. The tool never silently sums an all-time crates.io count with a 365-day Homebrew count. Channels whose units differ in strength (a Conda install ≠ a Docker pull ≠ a git clone) may still be summed, but only where the Rollup names each one and the weaker channel's caveat travels with the total into every format it appears in — see ADR-0009, which replaces this clause's original blanket prohibition.
 

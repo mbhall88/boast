@@ -18,7 +18,7 @@ use crate::transport::Transport;
 
 /// Default cap on worker threads (see `run_with_concurrency`), and what
 /// `run` and the CLI's `-j`/`--threads` default to. The current default
-/// Provider registry only ever has ~11 hosts, so this is mostly a safety
+/// Provider registry only ever has ~13 hosts, so this is mostly a safety
 /// ceiling for a future larger set of Providers, not a real-world limit.
 pub const DEFAULT_CONCURRENCY: usize = 8;
 
@@ -48,7 +48,7 @@ pub fn run(
 /// once — it never allows more than one request in flight against the *same*
 /// host, no matter how high it's set (ADR-0007). Raising it past the number
 /// of hosts a Project actually touches (at most the size of the Provider
-/// registry — ~11 by default) buys nothing: there's no further axis to
+/// registry — ~13 by default) buys nothing: there's no further axis to
 /// parallelise on. Lowering it (down to `1`, fully sequential) is the
 /// meaningful direction to tune, e.g. to open fewer simultaneous connections
 /// on a constrained network. `0` is treated as `1`, since nothing would ever

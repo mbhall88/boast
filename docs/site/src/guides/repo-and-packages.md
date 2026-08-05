@@ -56,6 +56,46 @@ all-time counts would misrepresent the total, so it stays out.
 Run `boast providers` to see the full registry of Providers, which Category each
 serves, and which package registries they cover.
 
+## Container images
+
+Many research tools also ship as a container. Docker Hub images are addressed as
+`docker:namespace/name` — official images live under `library`, so `ubuntu` is
+`docker:library/ubuntu`:
+
+```
+boast about --package docker:biocontainers/samtools \
+            --package conda:bioconda/samtools
+```
+
+```
+━━ docker:biocontainers/samtools ━━
+── Downloads ──
+  downloads  596335  all-time  dockerhub
+
+━━ conda:bioconda/samtools ━━
+── Downloads ──
+  downloads  9054107  all-time  bioconda
+
+═══ Downloads Rollup (derived — see channels above) ═══
+  9650442 all-time = docker:biocontainers/samtools (596335) + conda:bioconda/samtools (9054107)
+
+── Notices ──
+  Docker Hub pull counts record image fetches by machines, not installs by people: CI re-pulls and mirror warming inflate the figure, and it never resets
+```
+
+Unlike Homebrew, a Docker Hub pull count *is* cumulative, so it shares a Window with the
+conda and crates.io counts and does join the Rollup. Read that total with the Notice in
+mind: a pull is a much weaker signal than an install. Docker Hub counts every image fetch
+by a machine, so CI re-runs and mirror warming land in the same figure, and the counter
+never resets — `docker:library/ubuntu` sits near ten billion. This is why the Rollup
+always names each channel and its own value: the total is only ever as meaningful as the
+channels you can see underneath it.
+
+GitHub's container registry (`ghcr.io`) has no equivalent Provider, because GHCR
+publishes no pull statistics — neither the OCI registry API nor GitHub's Packages API
+exposes a download count. An image hosted only there can't contribute to Downloads at
+all.
+
 ## Save the identifiers for next time
 
 Re-typing `--repo`/`--package`/the DOI on every run gets old fast. `--save` writes a

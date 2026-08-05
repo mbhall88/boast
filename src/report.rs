@@ -5,7 +5,7 @@
 
 use time::format_description::well_known::Rfc3339;
 
-use crate::model::{Category, MetricValue, Outcome, Snapshot, Window};
+use crate::model::{Category, Metric, MetricValue, Outcome, Snapshot, Window};
 use crate::rollup;
 
 /// Display order for Categories, shared with [`crate::diff`]'s renderer so
@@ -258,11 +258,14 @@ fn escape_md_cell(s: &str) -> String {
 /// Metrics (never fetches; see ADR-0001). Only Metrics that actually resolved
 /// to a Value are named — an absent or failed Metric is silently omitted
 /// rather than implied as 0 (ADR-0002); a partial Snapshot is flagged in a
-/// trailing caveat instead of being folded into the headline numbers. If the
-/// headline citation count carries a Provider-level notice (e.g. Dimensions'
-/// licence text), that notice is appended too — quoting a keyed/terms-gated
-/// number without its terms is exactly what ADR-0005 exists to prevent, and
-/// prose is as much a paste target as the Markdown Report.
+/// trailing caveat instead of being folded into the headline numbers.
+///
+/// Any Provider-level notice attached to a headline number is appended after
+/// the sentence — Dimensions' licence text behind a citation count, or the
+/// caveat behind a channel folded into the download total (ADR-0009). Quoting
+/// a terms-gated or weakly-comparable number without the text that qualifies
+/// it is exactly what ADR-0005 exists to prevent, and prose is the most
+/// exposed paste target of the three formats, not the least.
 pub fn render_prose(snapshot: &Snapshot) -> String {
     let date_fmt = time::macros::format_description!("[year]-[month]-[day]");
     let date = snapshot
@@ -271,15 +274,15 @@ pub fn render_prose(snapshot: &Snapshot) -> String {
         .unwrap_or_else(|_| snapshot.created_at.to_string());
 
     let mut clauses = Vec::new();
-    let mut citation_notice = None;
+    let mut notices: Vec<String> = Vec::new();
     if let Some((count, provider, notice)) = headline_citations(snapshot) {
         clauses.push(format!("has been cited {count} times ({provider})"));
-        citation_notice = notice;
+        notices.extend(notice);
     }
     if let Some(stars) = headline_stars(snapshot) {
         clauses.push(format!("has {stars} GitHub stars"));
     }
-    if let Some(headline) = headline_downloads(snapshot) {
+    if let Some((headline, download_notices)) = headline_downloads(snapshot) {
         clauses.push(match headline {
             DownloadsHeadline::Rollup {
                 total,
@@ -298,7 +301,9 @@ pub fn render_prose(snapshot: &Snapshot) -> String {
                 window.describe(),
             ),
         });
+        notices.extend(download_notices);
     }
+    notices.dedup();
 
     let mut sentence = if clauses.is_empty() {
         format!("As of {date}, no headline metrics were available for this Snapshot.")
@@ -306,7 +311,7 @@ pub fn render_prose(snapshot: &Snapshot) -> String {
         format!("As of {date}, this project {}.", join_with_and(&clauses))
     };
 
-    if let Some(notice) = citation_notice {
+    for notice in notices {
         sentence.push(' ');
         sentence.push_str(&notice);
     }
@@ -395,7 +400,13 @@ enum DownloadsHeadline {
 /// misleads on its own: the rendered clause always states which Window the
 /// number covers (`window.describe()`), so "biggest wins" is a deliberate,
 /// labelled tie-break rather than a claim that it's the most representative.
-fn headline_downloads(snapshot: &Snapshot) -> Option<DownloadsHeadline> {
+/// Returns the headline alongside the notices carried by the Metrics it was
+/// computed from, so a caveat behind a contributing channel travels with the
+/// number into prose rather than being left behind in the terminal footer
+/// (ADR-0009). A total is only as trustworthy as its weakest channel, and
+/// prose shows the total without the per-channel breakdown that makes that
+/// weakness visible in the other formats.
+fn headline_downloads(snapshot: &Snapshot) -> Option<(DownloadsHeadline, Vec<String>)> {
     let downloads: Vec<_> = snapshot
         .metrics()
         .filter(|m| rollup::counts_as_download(m))
@@ -403,24 +414,41 @@ fn headline_downloads(snapshot: &Snapshot) -> Option<DownloadsHeadline> {
 
     let rollups = rollup::compute(downloads.iter().copied());
     if let Some(best) = rollups.into_iter().max_by_key(|r| r.total) {
-        return Some(DownloadsHeadline::Rollup {
-            total: best.total,
-            channels: best.channels.len(),
-            window: best.window,
-        });
+        // `compute` groups by exactly-equal Window, so the Metrics sharing the
+        // winning Rollup's Window are precisely the ones that were summed into
+        // it — no need to match channels back up by provider and identity.
+        let notices = long_notes(
+            downloads
+                .iter()
+                .copied()
+                .filter(|m| m.window == best.window),
+        );
+        return Some((
+            DownloadsHeadline::Rollup {
+                total: best.total,
+                channels: best.channels.len(),
+                window: best.window,
+            },
+            notices,
+        ));
     }
 
     downloads
         .into_iter()
         .filter_map(|m| match m.value {
-            MetricValue::Count(c) => Some((c, m.provider.clone(), m.window.clone())),
+            MetricValue::Count(c) => Some((c, m)),
             _ => None,
         })
-        .max_by_key(|(c, _, _)| *c)
-        .map(|(total, provider, window)| DownloadsHeadline::Single {
-            total,
-            provider,
-            window,
+        .max_by_key(|(c, _)| *c)
+        .map(|(total, m)| {
+            (
+                DownloadsHeadline::Single {
+                    total,
+                    provider: m.provider.clone(),
+                    window: m.window.clone(),
+                },
+                long_notes([m]),
+            )
         })
 }
 
@@ -431,8 +459,17 @@ fn headline_downloads(snapshot: &Snapshot) -> Option<DownloadsHeadline> {
 /// with [`crate::diff`]'s renderer, which merges this across both Snapshots
 /// being diffed (ADR-0005: a notice must survive every Report format).
 pub(crate) fn provider_notices(snapshot: &Snapshot) -> Vec<String> {
+    long_notes(snapshot.metrics())
+}
+
+/// The distinct notes carried by `metrics` that are long enough to count as
+/// Provider-level notices rather than inline glosses, in first-seen order.
+/// The one place the "note over [`INLINE_DETAIL_LIMIT`] is a notice" rule is
+/// applied, so the whole-Snapshot footer and the headline-scoped prose
+/// notices can never disagree about what qualifies.
+fn long_notes<'a>(metrics: impl IntoIterator<Item = &'a Metric>) -> Vec<String> {
     let mut notices = Vec::new();
-    for m in snapshot.metrics() {
+    for m in metrics {
         if let Some(note) = &m.note {
             if note.len() > INLINE_DETAIL_LIMIT && !notices.contains(note) {
                 notices.push(note.clone());

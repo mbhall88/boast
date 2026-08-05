@@ -67,6 +67,9 @@ boast about --package docker:biocontainers/samtools \
             --package conda:bioconda/samtools
 ```
 
+Captured on a later day than the run above, so bioconda's count has moved on — which is
+the point of Snapshots being dated:
+
 ```
 ━━ docker:biocontainers/samtools ━━
 ── Downloads ──

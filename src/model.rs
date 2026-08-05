@@ -298,6 +298,10 @@ pub enum Registry {
     Conda,
     Pypi,
     Homebrew,
+    /// Docker Hub. Its `PackageId.name` is `namespace/name` rather than a bare
+    /// name, since every image lives under an account or organisation —
+    /// official images under `library`, e.g. `library/ubuntu`.
+    Docker,
 }
 
 impl Registry {
@@ -309,6 +313,7 @@ impl Registry {
         Registry::Conda,
         Registry::Pypi,
         Registry::Homebrew,
+        Registry::Docker,
     ];
 
     fn prefix(self) -> &'static str {
@@ -317,6 +322,7 @@ impl Registry {
             Registry::Conda => "conda",
             Registry::Pypi => "pypi",
             Registry::Homebrew => "homebrew",
+            Registry::Docker => "docker",
         }
     }
 
@@ -326,7 +332,32 @@ impl Registry {
             "conda" => Some(Registry::Conda),
             "pypi" => Some(Registry::Pypi),
             "homebrew" => Some(Registry::Homebrew),
+            "docker" => Some(Registry::Docker),
             _ => None,
+        }
+    }
+
+    /// For registries whose `PackageId.name` must itself be qualified as
+    /// `owner/name`, the shape and the examples used to explain it when a
+    /// bare name arrives. `None` means a bare package name already
+    /// identifies the package on its own.
+    ///
+    /// Two registries need this for the same underlying reason: Anaconda.org
+    /// spans many independently-run channels, and Docker Hub namespaces every
+    /// image under an account, so in both cases a bare name names nothing in
+    /// particular. Kept as one rule rather than a per-registry branch in
+    /// `parse`, so a third such registry only adds an arm here.
+    fn qualified_name(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Registry::Conda => Some((
+                "channel/name",
+                "'conda-forge/xtensor' or 'bioconda/samtools'",
+            )),
+            Registry::Docker => Some((
+                "namespace/name",
+                "'biocontainers/samtools' or 'library/ubuntu'",
+            )),
+            Registry::Crates | Registry::Pypi | Registry::Homebrew => None,
         }
     }
 
@@ -341,8 +372,8 @@ impl Registry {
 
 impl PackageId {
     /// Parse `registry:name`, e.g. `crates:boast` or `conda:conda-forge/xtensor`.
-    /// A `conda` name must itself be `channel/name`, since Anaconda.org spans
-    /// many independently-run channels (bioconda, conda-forge, ...).
+    /// Some registries require the name to be qualified as `owner/name` — see
+    /// [`Registry::qualified_name`] for which, and why.
     pub fn parse(input: &str) -> Result<PackageId, IdentityError> {
         let s = input.trim();
         if s.is_empty() {
@@ -357,12 +388,17 @@ impl PackageId {
         }
         let registry = Registry::parse(registry)
             .ok_or_else(|| IdentityError::UnknownRegistry(registry.to_string()))?;
-        if registry == Registry::Conda {
+        if let Some((shape, examples)) = registry.qualified_name() {
             let valid = name
                 .split_once('/')
-                .is_some_and(|(channel, pkg)| !channel.is_empty() && !pkg.is_empty());
+                .is_some_and(|(owner, pkg)| !owner.is_empty() && !pkg.is_empty());
             if !valid {
-                return Err(IdentityError::CondaChannelRequired(name.to_string()));
+                return Err(IdentityError::QualifiedNameRequired {
+                    registry: registry.prefix(),
+                    name: name.to_string(),
+                    shape,
+                    examples,
+                });
             }
         }
         Ok(PackageId {
@@ -380,8 +416,13 @@ pub enum IdentityError {
     Unrecognised(String),
     #[error("unknown package registry '{0}' (supported: {supported})", supported = Registry::supported())]
     UnknownRegistry(String),
-    #[error("conda package '{0}' must be 'channel/name', e.g. 'conda-forge/xtensor' or 'bioconda/samtools'")]
-    CondaChannelRequired(String),
+    #[error("{registry} package '{name}' must be '{shape}', e.g. {examples}")]
+    QualifiedNameRequired {
+        registry: &'static str,
+        name: String,
+        shape: &'static str,
+        examples: &'static str,
+    },
     #[error(
         "ORCID {0} identifies a researcher, not a measurable work. Run `boast init --orcid {0}` \
          to expand it into a manifest, then `boast about manifest.toml`"
@@ -524,11 +565,17 @@ impl Identity {
         // A `registry:name` package identifier, e.g. `crates:boast` or
         // `conda:conda-forge/xtensor`. A slash after the colon normally falls
         // through instead (the `github:owner/name` repo shorthand, or any
-        // `scheme://` URL) — unless the prefix is specifically `conda`, the
-        // only registry whose own name needs a slash.
+        // `scheme://` URL) — unless the registry is one whose own name is
+        // qualified (see [`Registry::qualified_name`]), where the slash is
+        // part of the package name rather than a signal to fall through.
+        // Driven off that one rule, so a registry can never be accepted by
+        // `PackageId::parse` yet silently misrouted here into the bare
+        // `owner/name` repo shorthand below.
         if let Some((prefix, rest)) = s.split_once(':') {
-            let is_conda = Registry::parse(prefix) == Some(Registry::Conda);
-            let looks_like_package = !prefix.is_empty() && (!rest.contains('/') || is_conda);
+            let takes_qualified_name =
+                Registry::parse(prefix).is_some_and(|r| r.qualified_name().is_some());
+            let looks_like_package =
+                !prefix.is_empty() && (!rest.contains('/') || takes_qualified_name);
             if looks_like_package && !rest.is_empty() {
                 return PackageId::parse(s).map(Identity::Package);
             }
@@ -693,6 +740,12 @@ mod tests {
             ),
             ("pypi:pysam", Registry::Pypi, "pysam"),
             ("homebrew:samtools", Registry::Homebrew, "samtools"),
+            (
+                "docker:biocontainers/samtools",
+                Registry::Docker,
+                "biocontainers/samtools",
+            ),
+            ("docker:library/ubuntu", Registry::Docker, "library/ubuntu"),
         ] {
             assert_eq!(
                 Identity::parse(input).unwrap(),
@@ -705,6 +758,25 @@ mod tests {
         }
     }
 
+    /// The case list above is hand-written, so assert it actually covers every
+    /// registry — otherwise adding one to `Registry::ALL` would leave a
+    /// registry the test claims to cover silently unexercised.
+    #[test]
+    fn every_registry_in_all_has_a_parse_case() {
+        let covered = [
+            "crates:boast",
+            "conda:bioconda/samtools",
+            "pypi:pysam",
+            "homebrew:samtools",
+            "docker:biocontainers/samtools",
+        ]
+        .map(|s| PackageId::parse(s).unwrap().registry);
+
+        for registry in Registry::ALL {
+            assert!(covered.contains(registry), "no parse case for {registry:?}");
+        }
+    }
+
     #[test]
     fn unknown_registry_is_a_clear_error() {
         assert_eq!(
@@ -712,25 +784,77 @@ mod tests {
             Err(IdentityError::UnknownRegistry("npm".into()))
         );
         assert!(matches!(
-            Identity::parse("docker:samtools"),
-            Err(IdentityError::UnknownRegistry(r)) if r == "docker"
+            Identity::parse("npm:left-pad"),
+            Err(IdentityError::UnknownRegistry(r)) if r == "npm"
         ));
     }
 
     #[test]
     fn conda_package_requires_a_channel() {
+        for input in ["conda:samtools", "conda:/samtools", "conda:bioconda/"] {
+            assert!(
+                matches!(
+                    PackageId::parse(input),
+                    Err(IdentityError::QualifiedNameRequired {
+                        registry: "conda",
+                        shape: "channel/name",
+                        ..
+                    })
+                ),
+                "{input}"
+            );
+        }
+        // The rendered message still names the shape and a real example, so the
+        // generalised error reads no worse than the conda-specific one it replaced.
+        let msg = PackageId::parse("conda:samtools").unwrap_err().to_string();
         assert_eq!(
-            PackageId::parse("conda:samtools"),
-            Err(IdentityError::CondaChannelRequired("samtools".into()))
+            msg,
+            "conda package 'samtools' must be 'channel/name', \
+             e.g. 'conda-forge/xtensor' or 'bioconda/samtools'"
         );
+    }
+
+    #[test]
+    fn docker_package_requires_a_namespace() {
+        for input in ["docker:samtools", "docker:/samtools", "docker:library/"] {
+            assert!(
+                matches!(
+                    PackageId::parse(input),
+                    Err(IdentityError::QualifiedNameRequired {
+                        registry: "docker",
+                        shape: "namespace/name",
+                        ..
+                    })
+                ),
+                "{input}"
+            );
+        }
+        let msg = PackageId::parse("docker:ubuntu").unwrap_err().to_string();
         assert_eq!(
-            PackageId::parse("conda:/samtools"),
-            Err(IdentityError::CondaChannelRequired("/samtools".into()))
+            msg,
+            "docker package 'ubuntu' must be 'namespace/name', \
+             e.g. 'biocontainers/samtools' or 'library/ubuntu'"
         );
+    }
+
+    #[test]
+    fn docker_package_round_trips_through_its_canonical_form() {
+        let id = PackageId::parse("docker:biocontainers/samtools").unwrap();
+        assert_eq!(id.registry, Registry::Docker);
+        assert_eq!(id.name, "biocontainers/samtools");
         assert_eq!(
-            PackageId::parse("conda:bioconda/"),
-            Err(IdentityError::CondaChannelRequired("bioconda/".into()))
+            Identity::Package(id).canonical(),
+            "docker:biocontainers/samtools"
         );
+    }
+
+    /// Registries that take a bare name must not be dragged into the
+    /// qualified-name rule by the generalisation.
+    #[test]
+    fn bare_name_registries_still_accept_an_unqualified_name() {
+        for input in ["crates:boast", "pypi:pysam", "homebrew:samtools"] {
+            assert!(PackageId::parse(input).is_ok(), "{input}");
+        }
     }
 
     #[test]
@@ -760,14 +884,29 @@ mod tests {
     }
 
     #[test]
-    fn only_conda_registry_tolerates_a_slash_in_its_name() {
-        // `conda` is the only registry whose own name needs a slash; a slash
-        // after any other registry's colon must not be treated as a package
-        // attempt (matches pre-conda behaviour for those registries).
+    fn only_qualified_name_registries_tolerate_a_slash_in_their_name() {
+        // A slash after a bare-name registry's colon must not be treated as a
+        // package attempt (matches pre-conda behaviour for those registries).
         assert!(!matches!(
             Identity::parse("pypi:foo/bar"),
             Ok(Identity::Package(_))
         ));
+
+        // ...but every registry that *does* take a qualified name must survive
+        // the slash and reach `PackageId::parse`, rather than falling through
+        // to the bare `owner/name` GitHub-repo shorthand further down.
+        for (input, registry) in [
+            ("conda:bioconda/samtools", Registry::Conda),
+            ("docker:biocontainers/samtools", Registry::Docker),
+        ] {
+            assert!(
+                matches!(
+                    Identity::parse(input),
+                    Ok(Identity::Package(p)) if p.registry == registry
+                ),
+                "{input} was not routed to a package"
+            );
+        }
     }
 
     #[test]

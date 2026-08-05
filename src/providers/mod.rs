@@ -5,6 +5,7 @@ pub mod anaconda;
 pub mod crates_io;
 pub mod crossref;
 pub mod dimensions;
+pub mod docker_hub;
 pub mod europe_pmc;
 pub mod github;
 pub mod homebrew;
@@ -36,6 +37,7 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
         Box::new(anaconda::Anaconda),
         Box::new(pypi::Pypi),
         Box::new(homebrew::Homebrew),
+        Box::new(docker_hub::DockerHub),
     ]
 }
 

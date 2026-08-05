@@ -1,0 +1,12 @@
+{
+  "user": "biocontainers",
+  "name": "samtools",
+  "namespace": "biocontainers",
+  "repository_type": "image",
+  "description": "Tools for manipulating next-generation sequencing data",
+  "is_private": false,
+  "star_count": 13,
+  "pull_count": 596335,
+  "last_updated": "2019-10-21T10:19:59.081128Z",
+  "date_registered": "2016-10-19T17:24:09.012461Z"
+}

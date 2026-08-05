@@ -22,7 +22,11 @@ pub(crate) const CATEGORY_ORDER: [Category; 4] = [
 /// inline on its row. Past it, a note is treated as a Provider-level notice
 /// (e.g. a licence/terms notice) and promoted to the once-per-run footer
 /// instead — see ADR-0005 for why it isn't logged to stderr instead.
-const INLINE_DETAIL_LIMIT: usize = 80;
+///
+/// `pub(crate)` so a Provider whose note is *deliberately* written to land in
+/// the footer can assert that against the real boundary, rather than
+/// restating 80 as a second magic number that could drift out of step.
+pub(crate) const INLINE_DETAIL_LIMIT: usize = 80;
 
 struct Row {
     name: String,

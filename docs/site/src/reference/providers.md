@@ -17,6 +17,7 @@ crates.io   Downloads  yes      none
 anaconda    Downloads  yes      none
 pypi        Downloads  yes      none
 homebrew    Downloads  yes      none
+dockerhub   Downloads  yes      none
 openalex    Citations  yes      none
 crossref    Citations  yes      none
 dimensions  Citations  yes      none

@@ -28,9 +28,12 @@ boast 0.3.0 — as of 2026-08-04T06:35:40Z
   #12 of 15328 repos tagged 'bioinformatics'; GitHub topics are inconsistently applied
   #2 of 434 repos tagged 'sequence-alignment'; GitHub topics are inconsistently applied
   #1 of 6 repos tagged 'spliced-alignment'; GitHub topics are inconsistently applied
-  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage; self-mentions are included; article/preprint versions may be counted separately
-  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage concentrated in life-sciences literature; self-mentions are included; journal article/preprint versions may be counted separately
 ```
+
+In a full report, each `mentions` row carries a provider-specific Notice. OpenAlex is a
+partial indexed-search estimate; Europe PMC is partial and concentrated in life-sciences
+literature. Neither is a formal citation count or verified literal URL count, and
+self-mentions and separate article/preprint versions can count.
 
 A reproducible research impact aggregator. Point `boast` at a **Project** — a piece of
 research software identified by any of a code repository, distribution packages, and/or a
@@ -117,8 +120,6 @@ boast 0.3.0 — as of 2026-08-04T06:45:44Z
   #12 of 15328 repos tagged 'bioinformatics'; GitHub topics are inconsistently applied
   #2 of 434 repos tagged 'sequence-alignment'; GitHub topics are inconsistently applied
   #1 of 6 repos tagged 'spliced-alignment'; GitHub topics are inconsistently applied
-  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage; self-mentions are included; article/preprint versions may be counted separately
-  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage concentrated in life-sciences literature; self-mentions are included; journal article/preprint versions may be counted separately
 
 ── Provider Notes ──
   altmetric (N/A): Altmetric attention data not collected: no Details Page API key (ALTMETRIC_KEY). An institutional licence or Altmetric's SRAD program provides one. — doi:10.1093/bioinformatics/bty191

@@ -18,6 +18,22 @@ use crate::model::{Category, Identity, PaperId};
 use crate::provider::{KeyRequirement, Provider};
 use crate::report::CATEGORY_ORDER;
 
+/// Percent-encode a query-parameter value using RFC 3986's unreserved set.
+/// Provider search APIs use punctuation as query syntax, so encoding the full
+/// value keeps quotes, slashes, and operators data rather than URL syntax.
+pub(crate) fn percent_encode(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 /// The Providers enabled by default. Later tickets add more here.
 pub fn default_providers() -> Vec<Box<dyn Provider>> {
     default_providers_with_topic(None)

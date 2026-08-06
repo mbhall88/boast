@@ -6,7 +6,8 @@ in CI.
 - **[Measuring a paper](./measuring-a-paper.md)** — the smallest possible case: a bare
   DOI or PMID, nothing else.
 - **[A tool with a repo and packages](./repo-and-packages.md)** — the common case for
-  research software: a GitHub repo, one or more package registries, and a paper.
+  research software: a GitHub repo, indexed scholarly mentions, package registries, and a
+  paper.
 - **[A researcher's whole publication record](./orcid.md)** — expand an ORCID iD into a
   Manifest covering every work it lists.
 - **[Automating snapshots in CI](./ci-snapshots.md)** — a copy-paste GitHub Actions

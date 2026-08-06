@@ -10,6 +10,7 @@ use time::OffsetDateTime;
 
 use crate::model::{Category, Identity, Metric, MetricValue, Outcome, PaperId, Window};
 use crate::provider::{classify_status, Provider};
+use crate::providers::percent_encode;
 use crate::transport::Transport;
 
 const API_BASE: &str = "https://en.wikipedia.org/w/api.php";
@@ -131,24 +132,6 @@ impl Provider for Wikipedia {
             None => Self::classify(&resp.body, &url, &canonical),
         }
     }
-}
-
-/// Percent-encode a query-parameter value (RFC 3986 unreserved characters
-/// pass through unchanged; everything else, including non-ASCII bytes, is
-/// escaped). A DOI's suffix is publisher-chosen and can contain almost any
-/// character, so this errs on the side of encoding rather than assuming a
-/// narrow safe set.
-fn percent_encode(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    for byte in input.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

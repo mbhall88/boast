@@ -23,15 +23,25 @@ fn github_repo_flows_into_code_category() {
             )],
         )
         .on("/releases", 200, releases)
-        .on("api.github.com/repos/", 200, repo_body);
+        .on("api.github.com/repos/", 200, repo_body)
+        .on(
+            "api.openalex.org/works?",
+            200,
+            include_str!("cassettes/openalex_repo_search.json"),
+        )
+        .on(
+            "europepmc/webservices/rest/search?",
+            200,
+            include_str!("cassettes/europe_pmc_repo_search.json"),
+        );
 
     let project = Project::new(vec![Identity::Repo(
         RepoId::parse("BurntSushi/ripgrep").unwrap(),
     )]);
     let snapshot = orchestrator::run(&project, &default_providers(), &transport);
 
-    // Paper providers are skipped for a repo Identity, so no failures arise
-    // from unmocked paper endpoints.
+    // Repository searches from OpenAlex and Europe PMC are also mocked below,
+    // so every default Provider exercised by this repo Identity is offline.
     assert!(!snapshot.has_failures());
 
     // stars, forks, watchers, repo_age_years, contributors, release_downloads
@@ -46,6 +56,18 @@ fn github_repo_flows_into_code_category() {
     assert!(report.contains("66356")); // stars
     assert!(report.contains("477")); // contributors
     assert!(report.contains("1027994")); // summed release downloads
+
+    let attention = report.split("── Attention ──").nth(1).unwrap();
+    assert_eq!(
+        attention
+            .lines()
+            .filter(|line| line.trim_start().starts_with("mentions "))
+            .count(),
+        2
+    );
+    assert!(attention.contains("openalex"));
+    assert!(attention.contains("europe_pmc"));
+    assert!(!report.contains("Rollup"));
 }
 
 #[test]
@@ -72,7 +94,17 @@ fn github_topic_cohort_ranks_by_stars_with_disclaimer() {
             200,
             include_str!("cassettes/github_releases.json"),
         )
-        .on("api.github.com/repos/", 200, repo_body);
+        .on("api.github.com/repos/", 200, repo_body)
+        .on(
+            "api.openalex.org/works?",
+            200,
+            include_str!("cassettes/openalex_repo_search.json"),
+        )
+        .on(
+            "europepmc/webservices/rest/search?",
+            200,
+            include_str!("cassettes/europe_pmc_repo_search.json"),
+        );
 
     let project = Project::new(vec![Identity::Repo(
         RepoId::parse("nf-core/rnaseq").unwrap(),

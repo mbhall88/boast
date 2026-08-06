@@ -20,9 +20,35 @@ boast about --repo samtools/samtools \
             10.1093/gigascience/giab008
 ```
 
-Output (Code, Downloads per channel, and a Downloads Rollup — Citations/Attention are
-the same shape shown in [Getting started](../getting-started.md#your-first-report), so
-only the sections that are new here are shown):
+## Count scholarly mentions for a repository
+
+You can query a repository on its own:
+
+```
+boast about --repo mbhall88/rasusa
+```
+
+`--repo` accepts either `owner/name` or a full GitHub URL. The repository identity is
+normalised before querying, and boast searches the quoted host-qualified phrase
+`github.com/owner/name` in both OpenAlex and Europe PMC. It does not add a bare
+`owner/name` alias, because punctuation-aware matching cannot make that search literal.
+
+The relevant part of the report looks like this:
+
+```
+━━ github:mbhall88/rasusa ━━
+── Attention ──
+  mentions  16  all-time  openalex
+  mentions  12  all-time  europe_pmc
+```
+
+These values are indexed full-text search estimates, not formal citation counts or
+verified literal URL occurrences. Coverage is partial; Europe PMC is concentrated in
+life-sciences literature; self-mentions count; and article/preprint versions may be
+counted separately. The providers are independent and their values are never summed.
+
+Output (Code, indexed scholarly mentions under Attention, Downloads per channel, and a
+Downloads Rollup — Citations are the same shape shown in [Getting started](../getting-started.md#your-first-report), so only the sections that are new here are shown):
 
 ```
 ━━ github:samtools/samtools ━━
@@ -33,6 +59,10 @@ only the sections that are new here are shown):
   repo_age_years       14.40  all-time  github  since 2012-03-09
   contributors            108  all-time  github
   release_downloads  2156386  all-time  github  summed across release assets
+
+── Attention ──
+  mentions                 407  all-time  openalex
+  mentions                1104  all-time  europe_pmc
 
 ━━ conda:bioconda/samtools ━━
 ── Downloads ──
@@ -47,6 +77,12 @@ only the sections that are new here are shown):
 ═══ Downloads Rollup (derived — see channels above) ═══
   11188870 all-time = github:samtools/samtools (2156386) + conda:bioconda/samtools (9032484)
 ```
+
+The Attention section reports independent indexed-search estimates from OpenAlex and
+Europe PMC for the repository's host-qualified URL. They are shown side by side and are
+not summed: each service has different coverage, and the counts can include self-mentions
+and separate article/preprint versions. The Notice attached to each row explains those
+limits.
 
 Homebrew's own Metrics don't join the Rollup — they're all trailing Windows (30/90/365
 day), and a Rollup can only sum Metrics that share a compatible Window (see

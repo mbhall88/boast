@@ -51,7 +51,7 @@ A derived Metric produced by combining compatible Metrics — e.g. a total downl
 _Avoid_: Total, sum, aggregate
 
 **Category**:
-The family a Metric belongs to, used to group the Report. Four in v1: **Code** (stars, forks, contributors, release downloads, cohort rank…), **Downloads** (per-channel package/install counts + Rollup), **Citations** (counts + field-normalized FWCI/percentile/FCR/RCR), and **Attention** (open-access status and Wikipedia mentions keyless by default; full news/blog/policy/patent/social breakdown via Altmetric when a key is present).
+The family a Metric belongs to, used to group the Report. Four in v1: **Code** (stars, forks, contributors, release downloads, cohort rank…), **Downloads** (per-channel package/install counts + Rollup), **Citations** (counts + field-normalized FWCI/percentile/FCR/RCR), and **Attention** (open-access status, Wikipedia mentions, and indexed scholarly repository mentions keyless by default; full news/blog/policy/patent/social breakdown via Altmetric when a key is present).
 _Avoid_: Kind, group, type, section
 
 **Provider**:

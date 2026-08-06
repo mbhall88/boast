@@ -15,7 +15,7 @@ Impact data comes from many services with different coverage, cost, terms, and s
 - **Code:** GitHub (stars, forks, watchers, contributors, total release downloads, repo age, Cohort rank by topic).
 - **Downloads:** Anaconda.org (any channel — bioconda, conda-forge, or otherwise), PyPI, GitHub release assets, crates.io, Homebrew — reported per-channel, with a labelled Rollup.
 - **Citations:** OpenAlex (headline count + field-normalized **FWCI** + `citation_normalized_percentile`), Crossref (authoritative metadata), Europe PMC (life sciences cross-check), Dimensions badge API (count + recent count from the last two calendar years + FCR + RCR).
-- **Attention:** open-access status (OpenAlex) + Wikipedia mentions as a keyless baseline default; Altmetric as an opt-in richer Provider.
+- **Attention:** open-access status (OpenAlex), Wikipedia mentions, and indexed scholarly repository mentions (OpenAlex + Europe PMC) as keyless baseline defaults; Altmetric as an opt-in richer Provider.
 
 **Ranking.** A paper's "standing among similar work" is delivered by field-normalized metrics that already exist for free — OpenAlex percentile/FWCI and Dimensions FCR/RCR — rather than any manually constructed ranking. A repo's peer comparison is a **GitHub topic Cohort** (rank by stars among repos carrying a topic), chosen because it needs no manual setup and is reproducible; its dependence on inconsistent topic tagging is disclosed in every Report, not hidden.
 

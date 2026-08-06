@@ -20,9 +20,8 @@ boast about --repo samtools/samtools \
             10.1093/gigascience/giab008
 ```
 
-Output (Code, Downloads per channel, and a Downloads Rollup — Citations/Attention are
-the same shape shown in [Getting started](../getting-started.md#your-first-report), so
-only the sections that are new here are shown):
+Output (Code, indexed scholarly mentions under Attention, Downloads per channel, and a
+Downloads Rollup — Citations are the same shape shown in [Getting started](../getting-started.md#your-first-report), so only the sections that are new here are shown):
 
 ```
 ━━ github:samtools/samtools ━━
@@ -47,6 +46,12 @@ only the sections that are new here are shown):
 ═══ Downloads Rollup (derived — see channels above) ═══
   11188870 all-time = github:samtools/samtools (2156386) + conda:bioconda/samtools (9032484)
 ```
+
+The Attention section reports independent indexed-search estimates from OpenAlex and
+Europe PMC for the repository's host-qualified URL. They are shown side by side and are
+not summed: each service has different coverage, and the counts can include self-mentions
+and separate article/preprint versions. The Notice attached to each row explains those
+limits.
 
 Homebrew's own Metrics don't join the Rollup — they're all trailing Windows (30/90/365
 day), and a Rollup can only sum Metrics that share a compatible Window (see

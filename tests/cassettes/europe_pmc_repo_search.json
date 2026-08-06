@@ -1,0 +1,21 @@
+{
+  "version": "6.9",
+  "hitCount": 12,
+  "nextCursorMark": "AoIIQMVMHSg1NTQ5OTI2Ng==",
+  "request": {
+    "queryString": "\"github.com/mbhall88/rasusa\" AND (SRC:MED OR SRC:PPR)",
+    "resultType": "idlist",
+    "cursorMark": "*",
+    "pageSize": 1
+  },
+  "resultList": {
+    "result": [
+      {
+        "id": "42093749",
+        "source": "MED",
+        "pmid": "42093749",
+        "pmcid": "PMC13141811"
+      }
+    ]
+  }
+}

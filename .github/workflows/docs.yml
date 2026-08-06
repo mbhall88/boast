@@ -41,6 +41,12 @@ jobs:
     name: deploy to GitHub Pages
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Pages allows one live deployment at a time, so two pushes landing close
+    # together race and the later one fails with a 400. Queue them instead.
+    # Scoped to this job so pull request builds stay parallel.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write

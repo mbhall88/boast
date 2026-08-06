@@ -1,6 +1,6 @@
 [package]
 name = "boast"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.97"
 description = "A reproducible research impact aggregator: gather downloads, citations, stars, and field standing for a research tool or paper into dated, quotable snapshots."

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/mbhall88/boast/compare/0.3.0...0.4.0) (2026-08-06)
+
+
+### Features
+
+* add a Docker Hub Provider for container pull counts ([aae9eee](https://github.com/mbhall88/boast/commit/aae9eee3dfbf35b163c111be56fd6ba293d6051f))
+* add a Quay.io Provider for container pull counts ([de0cb1b](https://github.com/mbhall88/boast/commit/de0cb1b04eb902d09b60fde70102a25ffbb4cd36))
+* count repository scholarly mentions ([#81](https://github.com/mbhall88/boast/issues/81)) ([f6fc2ae](https://github.com/mbhall88/boast/commit/f6fc2aef10e4ff945d714ac61704dddea6975f43))
+
+
+### Bug Fixes
+
+* carry headline download notices into prose, and record ADR-0009 ([6c9e71e](https://github.com/mbhall88/boast/commit/6c9e71e22037f472fb4dac1013fffe445408b0e2))
+* terminate and de-duplicate prose notices; document the PyPI change ([5d752ee](https://github.com/mbhall88/boast/commit/5d752ee48af6cb4f29806c7e8b4b4f2580eb8309))
+
 ## [0.3.0](https://github.com/mbhall88/boast/compare/0.2.1...0.3.0) (2026-08-04)
 
 

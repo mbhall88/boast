@@ -20,10 +20,16 @@ boast 0.3.0 — as of 2026-08-04T06:35:40Z
   cohort_rank (sequence-alignment)       2  all-time  github
   cohort_rank (spliced-alignment)        1  all-time  github
 
+── Attention ──
+  mentions                            383  all-time  openalex
+  mentions                            855  all-time  europe_pmc
+
 ── Notices ──
   #12 of 15328 repos tagged 'bioinformatics'; GitHub topics are inconsistently applied
   #2 of 434 repos tagged 'sequence-alignment'; GitHub topics are inconsistently applied
   #1 of 6 repos tagged 'spliced-alignment'; GitHub topics are inconsistently applied
+  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage; self-mentions are included; article/preprint versions may be counted separately
+  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage concentrated in life-sciences literature; self-mentions are included; journal article/preprint versions may be counted separately
 ```
 
 A reproducible research impact aggregator. Point `boast` at a **Project** — a piece of
@@ -52,9 +58,10 @@ design decisions behind how boast works.
 
 ## Try it
 
-Combine a repo, a package, and a paper DOI and every Category reports in — including a
-Downloads Rollup across channels and the Provider Notes explaining anything that
-couldn't be collected:
+Give boast a repository, package, and paper DOI and every Category reports in. The repo
+contributes Code metrics plus independent OpenAlex and Europe PMC scholarly-mention
+estimates; the package contributes Downloads and a labelled Rollup; Provider Notes explain
+anything that couldn't be collected:
 
 ```
 boast about --repo lh3/minimap2 10.1093/bioinformatics/bty191 --package conda:bioconda/minimap2
@@ -93,6 +100,10 @@ boast 0.3.0 — as of 2026-08-04T06:45:44Z
   cohort_rank (sequence-alignment)       2  all-time  github
   cohort_rank (spliced-alignment)        1  all-time  github
 
+── Attention ──
+  mentions                            383  all-time  openalex
+  mentions                            855  all-time  europe_pmc
+
 ━━ conda:bioconda/minimap2 ━━
 ── Downloads ──
   downloads  1426981  all-time  bioconda
@@ -106,6 +117,8 @@ boast 0.3.0 — as of 2026-08-04T06:45:44Z
   #12 of 15328 repos tagged 'bioinformatics'; GitHub topics are inconsistently applied
   #2 of 434 repos tagged 'sequence-alignment'; GitHub topics are inconsistently applied
   #1 of 6 repos tagged 'spliced-alignment'; GitHub topics are inconsistently applied
+  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage; self-mentions are included; article/preprint versions may be counted separately
+  indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage concentrated in life-sciences literature; self-mentions are included; journal article/preprint versions may be counted separately
 
 ── Provider Notes ──
   altmetric (N/A): Altmetric attention data not collected: no Details Page API key (ALTMETRIC_KEY). An institutional licence or Altmetric's SRAD program provides one. — doi:10.1093/bioinformatics/bty191

@@ -30,3 +30,8 @@ altmetric   Attention  yes      required: ALTMETRIC_KEY (not set)
 An optional key raises a rate limit or unlocks extra Metrics but isn't required; a
 required key means that Provider reports every Metric as not-applicable until it's set
 (never as zero — see [ADR-0002](../design/0002-metric-honesty-model.md)).
+
+OpenAlex and Europe PMC also accept GitHub repository identities. For a repo they add an
+independent `mentions` Metric under Attention, based on each service's indexed full-text
+search. These are coverage-limited estimates, not formal citation counts or verified
+literal URL occurrences; the values are shown side by side and are never summed.

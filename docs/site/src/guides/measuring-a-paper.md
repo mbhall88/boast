@@ -4,6 +4,10 @@ The smallest possible Project: just a paper, identified by DOI or PubMed ID, wit
 code repository or package attached. This is the right shape when you're reporting on a
 publication itself rather than a specific tool.
 
+Repository scholarly mentions are a separate measurement. Add a repository identity with
+`--repo` when you want OpenAlex and Europe PMC to search for the repository as well; a
+DOI-only Project's Attention rows describe the paper, not its code repository.
+
 ```
 boast about 10.1371/journal.pbio.1002195
 ```

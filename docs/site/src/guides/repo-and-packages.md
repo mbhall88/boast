@@ -20,6 +20,33 @@ boast about --repo samtools/samtools \
             10.1093/gigascience/giab008
 ```
 
+## Count scholarly mentions for a repository
+
+You can query a repository on its own:
+
+```
+boast about --repo mbhall88/rasusa
+```
+
+`--repo` accepts either `owner/name` or a full GitHub URL. The repository identity is
+normalised before querying, and boast searches the quoted host-qualified phrase
+`github.com/owner/name` in both OpenAlex and Europe PMC. It does not add a bare
+`owner/name` alias, because punctuation-aware matching cannot make that search literal.
+
+The relevant part of the report looks like this:
+
+```
+━━ github:mbhall88/rasusa ━━
+── Attention ──
+  mentions  16  all-time  openalex
+  mentions  12  all-time  europe_pmc
+```
+
+These values are indexed full-text search estimates, not formal citation counts or
+verified literal URL occurrences. Coverage is partial; Europe PMC is concentrated in
+life-sciences literature; self-mentions count; and article/preprint versions may be
+counted separately. The providers are independent and their values are never summed.
+
 Output (Code, indexed scholarly mentions under Attention, Downloads per channel, and a
 Downloads Rollup — Citations are the same shape shown in [Getting started](../getting-started.md#your-first-report), so only the sections that are new here are shown):
 
@@ -32,6 +59,10 @@ Downloads Rollup — Citations are the same shape shown in [Getting started](../
   repo_age_years       14.40  all-time  github  since 2012-03-09
   contributors            108  all-time  github
   release_downloads  2156386  all-time  github  summed across release assets
+
+── Attention ──
+  mentions                 407  all-time  openalex
+  mentions                1104  all-time  europe_pmc
 
 ━━ conda:bioconda/samtools ━━
 ── Downloads ──

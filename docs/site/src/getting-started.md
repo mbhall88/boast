@@ -80,8 +80,34 @@ boast 0.1.1 — as of 2026-08-03T05:43:11Z
   English Wikipedia full-text search hits for this DOI; other-language Wikipedias are not counted
 ```
 
+## Measure a repository
+
+A repository can be measured without a DOI or package. Pass either `owner/name` or the
+full GitHub URL; both forms resolve to the same repository identity:
+
+```
+boast about --repo mbhall88/rasusa
+boast about --repo https://github.com/mbhall88/rasusa
+```
+
+Alongside the repository's Code metrics, the report includes independent indexed-search
+estimates from OpenAlex and Europe PMC under Attention:
+
+```
+━━ github:mbhall88/rasusa ━━
+── Attention ──
+  mentions  16  all-time  openalex
+  mentions  12  all-time  europe_pmc
+```
+
+These are not formal citation counts or verified literal URL occurrences. They are
+coverage-limited full-text search estimates; self-mentions count, and a preprint and its
+published version can count separately. The two providers are shown side by side and are
+never summed. Europe PMC is concentrated in life-sciences literature.
+
 If the piece of software also has a code repository and/or is published on a package
-registry, tell boast about those too, so every Category has something to report on:
+registry, tell boast about those too. The repository adds Code and Attention, a package
+adds Downloads, and a DOI adds paper Citations:
 
 ```
 boast about --repo samtools/samtools \
@@ -89,9 +115,9 @@ boast about --repo samtools/samtools \
             10.1093/gigascience/giab008
 ```
 
-Now the Report gains a Code section for the repo, a Downloads section for the package,
-and a Downloads Rollup combining the two channels that share a compatible Window — on
-top of everything the bare DOI already produced above:
+Now the Report gains Code and Attention sections for the repo, a Downloads section for the
+package, and a Downloads Rollup combining the two channels that share a compatible Window
+— on top of everything the bare DOI already produced above:
 
 ```
 ━━ github:samtools/samtools ━━
@@ -102,6 +128,10 @@ top of everything the bare DOI already produced above:
   repo_age_years       14.40  all-time  github  since 2012-03-09
   contributors            108  all-time  github
   release_downloads  2156386  all-time  github  summed across release assets
+
+── Attention ──
+  mentions                 407  all-time  openalex
+  mentions                1104  all-time  europe_pmc
 
 ━━ conda:bioconda/samtools ━━
 ── Downloads ──

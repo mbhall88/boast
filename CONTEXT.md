@@ -23,7 +23,7 @@ The span of time a Metric's value covers. Either **cumulative** (all-time, e.g. 
 _Avoid_: Period, timeframe, range
 
 **Manifest**:
-An optional file listing one or more Projects (their Identities and cohort topics) for repeatable or batch runs. Never required: a single Project can be given inline via CLI flags, and a bare paper (DOI/PMID) needs neither. The tool can generate a Manifest from a run, so it is a save-file, not a hand-authored prerequisite. Holds no secrets.
+An optional file listing one or more Projects, their Identities, and any chosen or prioritised Cohort topics for repeatable or batch runs. Never required: a single Project can be given inline via CLI flags, and a bare paper (DOI/PMID) needs neither. The tool can generate a Manifest from a run, so it is a save-file, not a hand-authored prerequisite. Holds no secrets.
 _Avoid_: Config, spec, input file
 
 **Snapshot**:
@@ -39,11 +39,11 @@ A Provider's licence or terms text, recorded on the Metric it accompanies and sh
 _Avoid_: Disclaimer, licence blurb, footnote, attribution
 
 **Provider Note**:
-The explanation carried by a NotApplicable or Failed Outcome — why a fetch legitimately yielded nothing ("no API key configured") or failed to complete ("rate limited after three retries"). Not a Notice: it describes one Provider's attempt on one Identity rather than the terms behind a number, so it appears in its own Report section keyed by Provider and Outcome kind, and never merges with a Notice or across Outcome kinds (ADR-0008).
+An operational explanation carried by a Provider×Identity Outcome — why a fetch yielded no value, failed, or returned only part of the requested data ("no API key configured", "rate limited after five of twenty Cohort ranks"). Not a Notice: it describes collection status rather than the terms behind a Metric, so it appears in its own Report section keyed by Provider and Outcome kind (ADR-0008).
 _Avoid_: Error message, warning, notice, detail
 
 **Cohort**:
-The set of repositories a Project's repo is ranked within, defined by a GitHub **topic** (e.g. all repos tagged `rna-seq`, sorted by stars). The topic may be read from the repo's own declared topics or set explicitly in the manifest. A Cohort ranking is always reported with its topic named and a disclaimer that GitHub topics are inconsistently applied.
+The set of repositories a Project's repo is ranked within, defined by a GitHub **topic** (e.g. all repos tagged `rna-seq`, sorted by stars). A Project may be ranked within one or more Cohorts read from the repo's declared topics, selected explicitly, or prioritised ahead of the remaining declared topics. A Cohort ranking is always reported with its topic named and a disclaimer that GitHub topics are inconsistently applied.
 _Avoid_: Peers, competitors, similar tools, category
 
 **Rollup**:

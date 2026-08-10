@@ -87,6 +87,7 @@ impl OpenAlex {
         };
 
         Outcome::Values {
+            provider_notes: Vec::new(),
             metrics: vec![Metric {
                 name: "mentions".into(),
                 category: Category::Attention,
@@ -193,6 +194,7 @@ impl OpenAlex {
             }
         } else {
             Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics,
                 metadata: None,
             }

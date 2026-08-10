@@ -49,6 +49,7 @@ impl Anaconda {
 
         match pkg.ndownloads {
             Some(downloads) => Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     name: "downloads".into(),
                     category: Category::Downloads,

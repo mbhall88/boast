@@ -40,17 +40,32 @@ Arguments:
   [IDENTIFIER]...  Identifiers: a DOI, doi.org URL, `pmid:12345678`, a github.com URL, `owner/name`, or a package as `registry:name` (e.g. `crates:boast`)
 
 Options:
-  -r, --repo <OWNER/NAME>        A GitHub repository as `owner/name` (alternative to a positional; repeatable)
-  -p, --package <REGISTRY:NAME>  A distribution package as `registry:name`, e.g. `crates:boast` (alternative to a positional; repeatable)
-  -f, --from-file <FILE>         Read identifiers from a file (one per line; `#` comments and blank lines ignored). Use `-` for stdin. Repeatable
-  -t, --topic <TOPIC>            GitHub topic to rank repositories within, overriding each repo's own declared topics (see the Cohort disclaimer in the report). When the input is a Manifest, this overrides every Project's own topic too
-  -d, --snapshot-dir <DIR>       Directory to write the Snapshot into [default: snapshots]
-  -n, --no-save                  Print the report but do not write a Snapshot file
-  -v, --verbose...               Increase logging verbosity (-v info, -vv debug, -vvv trace)
-  -q, --quiet                    Silence all logging except errors
-  -s, --save <FILE>              After fetching, also write a Manifest reflecting the identities (and `--topic`) used in this run, so a future run can `boast about <file>` instead of re-typing them. Not available when the input is itself a Manifest — use `boast init` to build one up front instead
-  -j, --threads <N>              Maximum number of distinct hosts fetched from concurrently. Never more than one request is in flight against the *same* host no matter how high this is set (ADR-0007). Raising it past the number of hosts a Project actually touches (at most the Provider registry's size, ~13 by default) buys nothing; lower it to open fewer simultaneous connections [default: 8]
-  -h, --help                     Print help
+  -r, --repo <OWNER/NAME>
+          A GitHub repository as `owner/name` (alternative to a positional; repeatable)
+  -p, --package <REGISTRY:NAME>
+          A distribution package as `registry:name`, e.g. `crates:boast` (alternative to a positional; repeatable)
+  -f, --from-file <FILE>
+          Read identifiers from a file (one per line; `#` comments and blank lines ignored). Use `-` for stdin. Repeatable
+  -t, --topic <TOPIC>
+          GitHub Cohorts to rank explicitly, in argument order. Repeatable and exclusive with --priority-topic; overrides Manifest selection
+      --priority-topic <TOPIC>
+          Declared GitHub Cohorts to rank first, in argument order, before every remaining declared topic. Repeatable and exclusive with --topic
+  -v, --verbose...
+          Increase logging verbosity (-v info, -vv debug, -vvv trace)
+      --wait-for-cohort-ranks[=<DURATION>]
+          Wait across confirmed GitHub Search quota resets for Cohort ranks. A bare flag allows five cumulative minutes; custom values require `=`. Without this flag, quota exhaustion returns successful partial results with skipped topics in a durable Provider Note. GITHUB_TOKEN raises usual Search capacity but cannot guarantee all Cohorts fit
+  -d, --snapshot-dir <DIR>
+          Directory to write the Snapshot into [default: snapshots]
+  -q, --quiet
+          Silence all logging except errors
+  -n, --no-save
+          Print the report but do not write a Snapshot file
+  -s, --save <FILE>
+          After fetching, also write a Manifest reflecting the identities and Cohort selection used in this run, so a future run can `boast about <file>` instead of re-typing them. Not available when the input is itself a Manifest — use `boast init` to build one up front instead
+  -j, --threads <N>
+          Maximum number of distinct hosts fetched from concurrently. Never more than one request is in flight against the *same* host no matter how high this is set (ADR-0007). Raising it past the number of hosts a Project actually touches (at most the Provider registry's size, ~13 by default) buys nothing; lower it to open fewer simultaneous connections [default: 8]
+  -h, --help
+          Print help
 ```
 
 ## `boast render`
@@ -128,10 +143,11 @@ Options:
   -r, --repo <OWNER/NAME>        A GitHub repository as `owner/name` (alternative to a positional; repeatable)
   -p, --package <REGISTRY:NAME>  A distribution package as `registry:name`, e.g. `crates:boast` (alternative to a positional; repeatable)
   -f, --from-file <FILE>         Read identifiers from a file (one per line; `#` comments and blank lines ignored). Use `-` for stdin. Repeatable
-  -t, --topic <TOPIC>            GitHub topic to record in the Manifest for this Project's Cohort ranking
+  -t, --topic <TOPIC>            Exact GitHub Cohorts to record in the Manifest, in argument order
+      --priority-topic <TOPIC>   Declared GitHub Cohorts to prioritise in the Manifest, in argument order
   -o, --output <FILE>            Where to write the Manifest [default: manifest.toml]
-  -O, --orcid <ORCID>            Expand a researcher's ORCID iD (bare, `orcid:`-prefixed, or an orcid.org URL) into a Manifest of every work with a DOI or PMID, one Project per work (ADR-0006; repeatable). **Performs a network fetch** — unlike the rest of `init`, which is otherwise offline. Exclusive with positionals/`--repo`/`--package`/`--from-file`: an ORCID expansion has no defensible answer to "which of these works does that repo belong to?"
   -v, --verbose...               Increase logging verbosity (-v info, -vv debug, -vvv trace)
+  -O, --orcid <ORCID>            Expand a researcher's ORCID iD (bare, `orcid:`-prefixed, or an orcid.org URL) into a Manifest of every work with a DOI or PMID, one Project per work (ADR-0006; repeatable). **Performs a network fetch** — unlike the rest of `init`, which is otherwise offline. Exclusive with positionals/`--repo`/`--package`/`--from-file`: an ORCID expansion has no defensible answer to "which of these works does that repo belong to?"
   -q, --quiet                    Silence all logging except errors
   -u, --include-unidentified     With `--orcid`, also list works with neither a DOI nor a PMID (and so were skipped) as commented-out `[[project]]` blocks you can fill in by hand. Off by default: most ORCID records carry many such works
   -h, --help                     Print help

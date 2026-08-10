@@ -228,10 +228,13 @@ pub fn render_markdown(snapshot: &Snapshot) -> String {
     if !provider_notes.is_empty() {
         out.push_str("\n## Provider Notes\n\n");
         for note in provider_notes {
+            let provider = escape_md_cell(note.provider);
+            let prefix = match note.source.label() {
+                Some(label) => format!("**{provider}** ({label}):"),
+                None => format!("**{provider}**:"),
+            };
             out.push_str(&format!(
-                "- **{}** ({}): {} — {}\n",
-                escape_md_cell(note.provider),
-                note.kind.label(),
+                "- {prefix} {} — {}\n",
                 escape_md_cell(note.message),
                 escape_md_cell(&format_covered_identities(&note.identities)),
             ));
@@ -499,22 +502,24 @@ fn long_notes<'a>(metrics: impl IntoIterator<Item = &'a Metric>) -> Vec<String> 
     notices
 }
 
-/// Which Outcome a [`ProviderNote`] came from. Kept in the dedup key
-/// alongside Provider (ADR-0002/ADR-0008): a `NotApplicable` and a `Failed`
-/// must never merge even when their text happens to match.
+/// Which existing Outcome variant a [`ProviderNote`] came from. Kept in the
+/// dedup key alongside Provider (ADR-0002/ADR-0008): a `NotApplicable` and a
+/// `Failed` must never merge even when their text happens to match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OutcomeKind {
+pub(crate) enum ProviderNoteSource {
+    Values,
     NotApplicable,
     Failed,
 }
 
-impl OutcomeKind {
-    /// Matches the value shown in the row's own Value column, so the footer
-    /// entry and the row it explains use the same word.
-    pub(crate) fn label(self) -> &'static str {
+impl ProviderNoteSource {
+    /// `Values` is already a successful Outcome and needs no invented status
+    /// label. The other labels match their row's Value column.
+    pub(crate) fn label(self) -> Option<&'static str> {
         match self {
-            OutcomeKind::NotApplicable => "N/A",
-            OutcomeKind::Failed => "FAILED",
+            ProviderNoteSource::Values => None,
+            ProviderNoteSource::NotApplicable => Some("N/A"),
+            ProviderNoteSource::Failed => Some("FAILED"),
         }
     }
 }
@@ -525,7 +530,7 @@ impl OutcomeKind {
 /// potentially `diff::render`, see #64) can each frame it their own way.
 pub(crate) struct ProviderNote<'a> {
     pub provider: &'a str,
-    pub kind: OutcomeKind,
+    pub source: ProviderNoteSource,
     pub message: &'a str,
     pub identities: Vec<&'a str>,
 }
@@ -540,25 +545,31 @@ pub(crate) struct ProviderNote<'a> {
 pub(crate) fn provider_operational_notes(snapshot: &Snapshot) -> Vec<ProviderNote<'_>> {
     let mut notes: Vec<ProviderNote<'_>> = Vec::new();
     for result in &snapshot.results {
-        let (kind, message) = match &result.outcome {
-            Outcome::NotApplicable { note } => (OutcomeKind::NotApplicable, note.as_str()),
-            Outcome::Failed { error } => (OutcomeKind::Failed, error.as_str()),
-            Outcome::Values { .. } => continue,
+        let messages: Vec<(ProviderNoteSource, &str)> = match &result.outcome {
+            Outcome::NotApplicable { note } if note.len() > INLINE_DETAIL_LIMIT => {
+                vec![(ProviderNoteSource::NotApplicable, note.as_str())]
+            }
+            Outcome::Failed { error } if error.len() > INLINE_DETAIL_LIMIT => {
+                vec![(ProviderNoteSource::Failed, error.as_str())]
+            }
+            Outcome::Values { provider_notes, .. } => provider_notes
+                .iter()
+                .map(|note| (ProviderNoteSource::Values, note.as_str()))
+                .collect(),
+            _ => continue,
         };
-        if message.len() <= INLINE_DETAIL_LIMIT {
-            continue;
-        }
-        match notes
-            .iter_mut()
-            .find(|n| n.provider == result.provider && n.kind == kind && n.message == message)
-        {
-            Some(existing) => existing.identities.push(&result.identity),
-            None => notes.push(ProviderNote {
-                provider: &result.provider,
-                kind,
-                message,
-                identities: vec![&result.identity],
-            }),
+        for (source, message) in messages {
+            match notes.iter_mut().find(|n| {
+                n.provider == result.provider && n.source == source && n.message == message
+            }) {
+                Some(existing) => existing.identities.push(&result.identity),
+                None => notes.push(ProviderNote {
+                    provider: &result.provider,
+                    source,
+                    message,
+                    identities: vec![&result.identity],
+                }),
+            }
         }
     }
     notes
@@ -591,13 +602,21 @@ pub(crate) fn write_provider_notes_terminal(out: &mut String, notes: Vec<Provide
     }
     out.push_str("\n── Provider Notes ──\n");
     for note in notes {
-        out.push_str(&format!(
-            "  {} ({}): {} — {}\n",
-            note.provider,
-            note.kind.label(),
-            note.message,
-            format_covered_identities(&note.identities),
-        ));
+        match note.source.label() {
+            Some(label) => out.push_str(&format!(
+                "  {} ({}): {} — {}\n",
+                note.provider,
+                label,
+                note.message,
+                format_covered_identities(&note.identities),
+            )),
+            None => out.push_str(&format!(
+                "  {}: {} — {}\n",
+                note.provider,
+                note.message,
+                format_covered_identities(&note.identities),
+            )),
+        }
     }
 }
 
@@ -691,6 +710,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![
                     Metric {
                         note: Some(long_note.clone()),
@@ -733,6 +753,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![dimensions_metric("doi:10.1/x")],
                     metadata: None,
                 },
@@ -742,6 +763,7 @@ mod tests {
                 identity: "doi:10.2/y".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![dimensions_metric("doi:10.2/y")],
                     metadata: None,
                 },
@@ -834,6 +856,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     note: Some(long_note.clone()),
                     provider: "dimensions".into(),
@@ -847,6 +870,32 @@ mod tests {
         assert!(!out.contains("── Provider Notes ──"));
         let notices_and_after = out.split("── Notices ──").nth(1).unwrap();
         assert!(!notices_and_after.contains("Provider Notes"));
+    }
+
+    #[test]
+    fn partial_values_provider_note_survives_offline_terminal_and_markdown_rendering() {
+        let note =
+            "GitHub Cohort ranks partially collected: 5 of 20; skipped topics: six through twenty";
+        let snap = snapshot_with(vec![FetchResult {
+            provider: "github".into(),
+            identity: "github:owner/repo".into(),
+            category: Category::Code,
+            outcome: Outcome::Values {
+                metrics: vec![metric("stars", MetricValue::Count(10))],
+                metadata: None,
+                provider_notes: vec![note.into()],
+            },
+        }]);
+
+        let terminal = render_terminal(&snap);
+        assert!(terminal.contains("── Provider Notes ──"));
+        assert!(terminal.contains("github: GitHub Cohort"));
+        assert!(terminal.contains(note));
+
+        let markdown = render_markdown(&snap);
+        assert!(markdown.contains("## Provider Notes"));
+        assert!(markdown.contains("**github**: GitHub Cohort"));
+        assert!(markdown.contains(note));
     }
 
     #[test]
@@ -963,6 +1012,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![metric("citations", MetricValue::Count(1421))],
                 metadata: None,
             },
@@ -983,6 +1033,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![
                     metric("citations", MetricValue::Count(1421)),
                     Metric {
@@ -1069,6 +1120,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![metric("citations", MetricValue::Count(1421))],
                     metadata: None,
                 },
@@ -1078,6 +1130,7 @@ mod tests {
                 identity: "github:o/n".into(),
                 category: Category::Code,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         category: Category::Code,
                         provider: "github".into(),
@@ -1119,6 +1172,7 @@ mod tests {
             identity: identity.into(),
             category: Category::Downloads,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![downloads_metric(provider, identity, value, window)],
                 metadata: None,
             },
@@ -1134,6 +1188,7 @@ mod tests {
             identity: identity.into(),
             category: Category::Code,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     name: "release_downloads".into(),
                     category: Category::Code,
@@ -1260,6 +1315,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![metric("citations", MetricValue::Count(1421))],
                 metadata: None,
             },
@@ -1278,6 +1334,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![metric("citations", MetricValue::Count(1421))],
                 metadata: None,
             },
@@ -1340,6 +1397,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         note: Some(notice.clone()),
                         provider: "dimensions".into(),
@@ -1368,6 +1426,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     note: Some("a | pipe\nand a newline".into()),
                     provider: "example".into(),
@@ -1392,6 +1451,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![metric("citations", MetricValue::Count(1421))],
                     metadata: None,
                 },
@@ -1401,6 +1461,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         provider: "crossref".into(),
                         ..metric("citations", MetricValue::Count(900))
@@ -1423,6 +1484,7 @@ mod tests {
                 identity: "github:o/n".into(),
                 category: Category::Code,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         category: Category::Code,
                         provider: "github".into(),
@@ -1475,6 +1537,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![metric("citations", MetricValue::Count(1421))],
                     metadata: None,
                 },
@@ -1503,6 +1566,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     note: Some(notice.clone()),
                     provider: "dimensions".into(),
@@ -1525,6 +1589,7 @@ mod tests {
             identity: "doi:10.1/x".into(),
             category: Category::Citations,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     note: Some("short gloss".into()),
                     ..metric("citations", MetricValue::Count(1421))
@@ -1550,6 +1615,7 @@ mod tests {
                 identity: "docker:ns/x".into(),
                 category: Category::Downloads,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         note: Some(notice.clone()),
                         provider: "dockerhub".into(),
@@ -1583,6 +1649,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         note: Some(punctuated.clone()),
                         provider: "dimensions".into(),
@@ -1597,6 +1664,7 @@ mod tests {
                 identity: "docker:ns/x".into(),
                 category: Category::Downloads,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         note: Some(unpunctuated.clone()),
                         provider: "dockerhub".into(),
@@ -1631,6 +1699,7 @@ mod tests {
                 identity: "doi:10.1/x".into(),
                 category: Category::Citations,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         note: Some(shared.clone()),
                         ..metric("citations", MetricValue::Count(9))
@@ -1644,6 +1713,7 @@ mod tests {
                 identity: "docker:ns/x".into(),
                 category: Category::Downloads,
                 outcome: Outcome::Values {
+                    provider_notes: Vec::new(),
                     metrics: vec![Metric {
                         note: Some(shared.clone()),
                         provider: "dockerhub".into(),

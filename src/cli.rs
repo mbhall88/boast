@@ -3,6 +3,7 @@
 //! `boast about 10.1234/x`.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use time::macros::format_description;
@@ -10,14 +11,17 @@ use time::OffsetDateTime;
 
 use crate::diff;
 use crate::manifest::Manifest;
-use crate::model::{Identity, IdentityError, OrcidId, PackageId, Project, RepoId, Snapshot};
+use crate::model::{
+    CohortSelection, Identity, IdentityError, OrcidId, PackageId, Project, RepoId, Snapshot,
+};
 use crate::orchestrator;
 use crate::orcid::{self, OrcidWork};
+use crate::providers::github::GitHub;
 use crate::providers::{
-    default_providers, default_providers_with_topic, paper_provider_count, render_providers,
+    default_providers, default_providers_with_github, paper_provider_count, render_providers,
 };
 use crate::report::{render_markdown, render_prose, render_terminal};
-use crate::transport::{RetryingTransport, UreqTransport};
+use crate::transport::{RetryingTransport, Transport, UreqTransport};
 
 /// Subcommands recognised as the first positional token. Anything else is
 /// treated as a bare identifier for `about`.
@@ -136,11 +140,39 @@ pub struct AboutArgs {
     #[command(flatten)]
     pub sources: IdentitySourceArgs,
 
-    /// GitHub topic to rank repositories within, overriding each repo's own
-    /// declared topics (see the Cohort disclaimer in the report). When the
-    /// input is a Manifest, this overrides every Project's own topic too.
-    #[arg(short = 't', long = "topic", value_name = "TOPIC")]
-    pub topic: Option<String>,
+    /// GitHub Cohorts to rank explicitly, in argument order. Repeatable and
+    /// exclusive with --priority-topic; overrides Manifest selection.
+    #[arg(
+        short = 't',
+        long = "topic",
+        value_name = "TOPIC",
+        conflicts_with = "priority_topic"
+    )]
+    pub topic: Vec<String>,
+
+    /// Declared GitHub Cohorts to rank first, in argument order, before every
+    /// remaining declared topic. Repeatable and exclusive with --topic.
+    #[arg(
+        long = "priority-topic",
+        value_name = "TOPIC",
+        conflicts_with = "topic"
+    )]
+    pub priority_topic: Vec<String>,
+
+    /// Wait across confirmed GitHub Search quota resets for Cohort ranks. A
+    /// bare flag allows five cumulative minutes; custom values require `=`.
+    /// Without this flag, quota exhaustion returns successful partial results
+    /// with skipped topics in a durable Provider Note. GITHUB_TOKEN raises
+    /// usual Search capacity but cannot guarantee all Cohorts fit.
+    #[arg(
+        long = "wait-for-cohort-ranks",
+        value_name = "DURATION",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "5m",
+        value_parser = parse_positive_duration
+    )]
+    pub wait_for_cohort_ranks: Option<Duration>,
 
     /// Directory to write the Snapshot into.
     #[arg(short = 'd', long, default_value = "snapshots", value_name = "DIR")]
@@ -150,8 +182,8 @@ pub struct AboutArgs {
     #[arg(short = 'n', long)]
     pub no_save: bool,
 
-    /// After fetching, also write a Manifest reflecting the identities (and
-    /// `--topic`) used in this run, so a future run can `boast about <file>`
+    /// After fetching, also write a Manifest reflecting the identities and
+    /// Cohort selection used in this run, so a future run can `boast about <file>`
     /// instead of re-typing them. Not available when the input is itself a
     /// Manifest — use `boast init` to build one up front instead.
     #[arg(short = 's', long = "save", value_name = "FILE")]
@@ -184,14 +216,56 @@ fn parse_at_least_one(s: &str) -> Result<usize, String> {
     }
 }
 
+fn parse_positive_duration(value: &str) -> Result<Duration, String> {
+    let digit_count = value.chars().take_while(char::is_ascii_digit).count();
+    let (number, unit) = value.split_at(digit_count);
+    let amount = number
+        .parse::<u64>()
+        .map_err(|_| format!("'{value}' is not a valid duration (use e.g. 30s, 5m, or 1h)"))?;
+    if amount == 0 {
+        return Err("duration must be greater than zero".into());
+    }
+    let seconds = match unit {
+        "s" => Some(amount),
+        "m" => amount.checked_mul(60),
+        "h" => amount.checked_mul(60 * 60),
+        _ => None,
+    }
+    .ok_or_else(|| format!("'{value}' is not a valid duration (use e.g. 30s, 5m, or 1h)"))?;
+    Ok(Duration::from_secs(seconds))
+}
+
+fn cohort_selection(topics: &[String], priority_topics: &[String]) -> CohortSelection {
+    if !topics.is_empty() {
+        CohortSelection::Exact(topics.to_vec())
+    } else if !priority_topics.is_empty() {
+        CohortSelection::Priority(priority_topics.to_vec())
+    } else {
+        CohortSelection::Declared
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct InitArgs {
     #[command(flatten)]
     pub sources: IdentitySourceArgs,
 
-    /// GitHub topic to record in the Manifest for this Project's Cohort ranking.
-    #[arg(short = 't', long = "topic", value_name = "TOPIC")]
-    pub topic: Option<String>,
+    /// Exact GitHub Cohorts to record in the Manifest, in argument order.
+    #[arg(
+        short = 't',
+        long = "topic",
+        value_name = "TOPIC",
+        conflicts_with = "priority_topic"
+    )]
+    pub topic: Vec<String>,
+
+    /// Declared GitHub Cohorts to prioritise in the Manifest, in argument order.
+    #[arg(
+        long = "priority-topic",
+        value_name = "TOPIC",
+        conflicts_with = "topic"
+    )]
+    pub priority_topic: Vec<String>,
 
     /// Where to write the Manifest.
     #[arg(
@@ -347,8 +421,12 @@ fn run_about(args: AboutArgs) -> i32 {
     warn_if_missing_github_token(&identities);
 
     let project = Project::new(identities);
-    let transport = RetryingTransport::new(UreqTransport::new());
-    let providers = default_providers_with_topic(args.topic.clone());
+    let transport = runtime_transport();
+    let selection = cohort_selection(&args.topic, &args.priority_topic);
+    if let Err(code) = validate_cohort_selection(&project, &selection, &transport) {
+        return code;
+    }
+    let providers = default_providers_with_github(selection.clone(), args.wait_for_cohort_ranks);
 
     let snapshot =
         orchestrator::run_with_concurrency(&project, &providers, &transport, args.threads);
@@ -358,7 +436,7 @@ fn run_about(args: AboutArgs) -> i32 {
     }
 
     if let Some(save_path) = &args.save {
-        if let Err(code) = save_manifest(&project.identities, args.topic.as_deref(), save_path) {
+        if let Err(code) = save_manifest(&project.identities, selection, save_path) {
             return code;
         }
     }
@@ -407,7 +485,7 @@ fn run_about_manifest(path: &std::path::Path, args: &AboutArgs) -> i32 {
         }
     };
 
-    let transport = RetryingTransport::new(UreqTransport::new());
+    let transport = runtime_transport();
     let mut had_failures = false;
 
     for (index, entry) in manifest.projects.iter().enumerate() {
@@ -421,8 +499,15 @@ fn run_about_manifest(path: &std::path::Path, args: &AboutArgs) -> i32 {
 
         warn_if_missing_github_token(&project.identities);
 
-        let topic = args.topic.clone().or_else(|| entry.topic.clone());
-        let providers = default_providers_with_topic(topic);
+        let selection = if !args.topic.is_empty() || !args.priority_topic.is_empty() {
+            cohort_selection(&args.topic, &args.priority_topic)
+        } else {
+            entry.cohort_selection()
+        };
+        if let Err(code) = validate_cohort_selection(&project, &selection, &transport) {
+            return code;
+        }
+        let providers = default_providers_with_github(selection, args.wait_for_cohort_ranks);
 
         let snapshot =
             orchestrator::run_with_concurrency(&project, &providers, &transport, args.threads);
@@ -465,6 +550,29 @@ fn print_and_save_snapshot(
                 tracing::error!("could not write snapshot: {e}");
                 return Err(2);
             }
+        }
+    }
+    Ok(())
+}
+
+fn runtime_transport() -> RetryingTransport<UreqTransport> {
+    RetryingTransport::new(UreqTransport::new())
+        .without_retry_for_url("api.github.com/search/repositories")
+}
+
+fn validate_cohort_selection(
+    project: &Project,
+    selection: &CohortSelection,
+    transport: &dyn Transport,
+) -> Result<(), i32> {
+    if !matches!(selection, CohortSelection::Priority(_)) {
+        return Ok(());
+    }
+    let github = GitHub::with_cohort_options(selection.clone(), None);
+    for identity in &project.identities {
+        if let Err(error) = github.validate_cohort_selection(identity, transport) {
+            tracing::error!("invalid GitHub Cohort priority: {error}");
+            return Err(2);
         }
     }
     Ok(())
@@ -527,8 +635,10 @@ fn warn_if_missing_github_token(identities: &[Identity]) {
             .is_none()
     {
         tracing::warn!(
-            "GITHUB_TOKEN is not set; GitHub metrics use the unauthenticated rate limit \
-             (60 requests/hour) and may be throttled. Set GITHUB_TOKEN to raise it."
+            "GITHUB_TOKEN is not set; GitHub uses the unauthenticated core limit \
+             (60 requests/hour) and Search limit (usually 10 requests/minute). Set \
+             GITHUB_TOKEN to raise the usual limits, but it does not guarantee every \
+             requested Cohort rank will fit in one Search window."
         );
     }
 }
@@ -537,10 +647,10 @@ fn warn_if_missing_github_token(identities: &[Identity]) {
 /// basis for `about --save` and `init`.
 fn save_manifest(
     identities: &[Identity],
-    topic: Option<&str>,
+    selection: CohortSelection,
     path: &std::path::Path,
 ) -> Result<(), i32> {
-    let manifest = Manifest::from_identities(identities, topic);
+    let manifest = Manifest::from_identities_with_selection(identities, selection);
     let toml_str = manifest.to_toml_string().map_err(|e| {
         tracing::error!("could not serialise manifest: {e}");
         2
@@ -573,7 +683,11 @@ fn run_init(args: InitArgs) -> i32 {
         return 2;
     }
 
-    match save_manifest(&identities, args.topic.as_deref(), &args.output) {
+    match save_manifest(
+        &identities,
+        cohort_selection(&args.topic, &args.priority_topic),
+        &args.output,
+    ) {
         Ok(()) => 0,
         Err(code) => code,
     }
@@ -657,7 +771,10 @@ fn run_init_orcid(args: &InitArgs) -> i32 {
         ws = orcid::plural(identified.len()),
     );
 
-    let manifest = Manifest::from_orcid_works(&identified, args.topic.as_deref());
+    let manifest = Manifest::from_orcid_works_with_selection(
+        &identified,
+        cohort_selection(&args.topic, &args.priority_topic),
+    );
     let toml_str = match manifest.to_toml_string() {
         Ok(s) => s,
         Err(e) => {
@@ -1021,6 +1138,101 @@ pmid:31234567
             panic!("expected About")
         };
         assert_eq!(a.save, Some(PathBuf::from("out.toml")));
+    }
+
+    #[test]
+    fn topic_modes_are_repeatable_ordered_and_mutually_exclusive() {
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "owner/repo",
+            "--topic",
+            "second",
+            "--topic",
+            "first",
+        ]))
+        .unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        assert_eq!(a.topic, ["second", "first"]);
+
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "owner/repo",
+            "--priority-topic",
+            "important",
+            "--priority-topic",
+            "next",
+        ]))
+        .unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        assert_eq!(a.priority_topic, ["important", "next"]);
+
+        let error = Cli::try_parse_from(norm(&[
+            "boast",
+            "owner/repo",
+            "--topic",
+            "exact",
+            "--priority-topic",
+            "priority",
+        ]))
+        .unwrap_err();
+        assert!(error.to_string().contains("cannot be used with"));
+    }
+
+    #[test]
+    fn wait_for_cohort_ranks_uses_five_minutes_by_default_and_requires_equals_for_a_value() {
+        let bare =
+            Cli::try_parse_from(norm(&["boast", "owner/repo", "--wait-for-cohort-ranks"])).unwrap();
+        let Command::About(a) = bare.command else {
+            panic!("expected About")
+        };
+        assert_eq!(
+            a.wait_for_cohort_ranks,
+            Some(std::time::Duration::from_secs(300))
+        );
+
+        let custom = Cli::try_parse_from(norm(&[
+            "boast",
+            "owner/repo",
+            "--wait-for-cohort-ranks=30s",
+        ]))
+        .unwrap();
+        let Command::About(a) = custom.command else {
+            panic!("expected About")
+        };
+        assert_eq!(
+            a.wait_for_cohort_ranks,
+            Some(std::time::Duration::from_secs(30))
+        );
+
+        for bad in ["0s", "later", "5"] {
+            let error = Cli::try_parse_from(norm(&[
+                "boast",
+                "owner/repo",
+                &format!("--wait-for-cohort-ranks={bad}"),
+            ]))
+            .unwrap_err();
+            assert!(error.to_string().contains("duration"), "{bad}: {error}");
+        }
+    }
+
+    #[test]
+    fn undeclared_priority_is_rejected_before_orchestration() {
+        let project = Project::new(vec![Identity::Repo(RepoId::parse("owner/repo").unwrap())]);
+        let transport = crate::transport::MockTransport::new().on(
+            "api.github.com/repos/owner/repo",
+            200,
+            r#"{"topics":["declared"]}"#,
+        );
+        let result = validate_cohort_selection(
+            &project,
+            &CohortSelection::Priority(vec!["missing".into()]),
+            &transport,
+        );
+        assert_eq!(result, Err(2));
     }
 
     #[test]

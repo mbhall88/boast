@@ -207,6 +207,7 @@ pub struct RetryingTransport<T: Transport> {
     inner: T,
     policy: RetryPolicy,
     sleep: Box<dyn Fn(Duration) + Send + Sync>,
+    retry_excluded_urls: Vec<String>,
 }
 
 impl<T: Transport> RetryingTransport<T> {
@@ -217,7 +218,15 @@ impl<T: Transport> RetryingTransport<T> {
             inner,
             policy: RetryPolicy::default(),
             sleep: Box::new(std::thread::sleep),
+            retry_excluded_urls: Vec::new(),
         }
+    }
+
+    /// Let a caller handle all responses and transport errors for matching
+    /// URLs directly, without this generic retry layer sleeping first.
+    pub fn without_retry_for_url(mut self, url_contains: &str) -> Self {
+        self.retry_excluded_urls.push(url_contains.to_string());
+        self
     }
 
     /// Wrap `inner` with an explicit policy and a custom `sleep`, so tests can
@@ -233,6 +242,7 @@ impl<T: Transport> RetryingTransport<T> {
             inner,
             policy,
             sleep: Box::new(sleep),
+            retry_excluded_urls: Vec::new(),
         }
     }
 }
@@ -246,9 +256,13 @@ impl<T: Transport> Transport for RetryingTransport<T> {
         let mut attempt = 0;
         loop {
             let outcome = self.inner.get_with_headers(url, headers);
+            let excluded = self
+                .retry_excluded_urls
+                .iter()
+                .any(|pattern| url.contains(pattern));
             let transient = match &outcome {
-                Ok(resp) => is_transient_status(resp.status),
-                Err(e) => is_transient_error(e),
+                Ok(resp) => is_transient_status(resp.status) && !excluded,
+                Err(e) => is_transient_error(e) && !excluded,
             };
             if !transient || attempt >= self.policy.max_retries {
                 return outcome;
@@ -471,6 +485,36 @@ mod tests {
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body, "ok-body");
         assert_eq!(delays.lock().unwrap().len(), 1, "exactly one retry backoff");
+    }
+
+    #[test]
+    fn an_excluded_url_returns_transient_responses_without_sleeping_or_retrying() {
+        let inner = MockTransport::new().on_sequence(
+            "api.github.com/search/repositories",
+            &[(429, "limited"), (200, "ok")],
+        );
+        let (sleep, delays) = recording_sleep();
+        let t = RetryingTransport::with_policy_and_sleep(inner, RetryPolicy::default(), sleep)
+            .without_retry_for_url("api.github.com/search/repositories");
+
+        let response = t
+            .get("https://api.github.com/search/repositories?q=topic:test")
+            .unwrap();
+        assert_eq!(response.status, 429);
+        assert!(delays.lock().unwrap().is_empty());
+
+        let inner = MockTransport::new().on_error(
+            "api.github.com/search/repositories",
+            TransportError::Timeout,
+        );
+        let (sleep, delays) = recording_sleep();
+        let t = RetryingTransport::with_policy_and_sleep(inner, RetryPolicy::default(), sleep)
+            .without_retry_for_url("api.github.com/search/repositories");
+        assert_eq!(
+            t.get("https://api.github.com/search/repositories?q=topic:test"),
+            Err(TransportError::Timeout)
+        );
+        assert!(delays.lock().unwrap().is_empty());
     }
 
     #[test]

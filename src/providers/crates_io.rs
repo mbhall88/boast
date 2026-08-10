@@ -43,6 +43,7 @@ impl CratesIo {
 
         match env.krate.downloads {
             Some(downloads) => Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     name: "downloads".into(),
                     category: Category::Downloads,

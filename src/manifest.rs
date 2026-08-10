@@ -1,6 +1,7 @@
 //! The optional TOML **Manifest**: a committable, secret-free file listing
 //! one or more Projects for repeatable or batch `boast about` runs (see
-//! `CONTEXT.md`). Holds only identities and an optional Cohort topic.
+//! `CONTEXT.md`). Holds identities and optional exact or prioritised Cohort
+//! selections; runtime-only waiting and secrets never enter it.
 //! Secrets (`GITHUB_TOKEN`, …) are read from the environment, never the
 //! Manifest — any unrecognised field (e.g. a mistakenly-pasted token) is a
 //! hard parse error rather than a silent drop, so a secret can never end up
@@ -9,7 +10,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Identity, IdentityError, PaperId, Project};
+use crate::model::{CohortSelection, Identity, IdentityError, PaperId, Project};
 
 /// A Manifest is one or more Projects, each its own `[[project]]` TOML table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -26,10 +27,17 @@ pub struct ManifestProject {
     /// Identity strings in the same syntax accepted on the command line, e.g.
     /// `doi:10.x/y`, `github:owner/name`, `crates:boast`.
     pub identities: Vec<String>,
-    /// GitHub topic to rank repo Identities within, overriding their own
-    /// declared topics — the Manifest equivalent of `--topic`.
+    /// Legacy singular exact GitHub Cohort selection. Read-compatible only;
+    /// newly generated Manifests write `topics`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub topic: Option<String>,
+    /// Exact Cohorts, in collection order. Newly generated Manifests use this
+    /// plural form; `topic` remains read-compatible for older files.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub topics: Vec<String>,
+    /// Declared Cohorts to attempt first, in order, before the remainder.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub priority_topics: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -46,16 +54,26 @@ pub enum ManifestError {
     },
     #[error("manifest has no [[project]] entries")]
     Empty,
+    #[error("project {index}: topic, topics, and priority_topics are mutually exclusive")]
+    ConflictingTopics { index: usize },
 }
 
 impl Manifest {
     /// Parse a Manifest from TOML text. Rejects (never silently drops) any
-    /// field outside `identities`/`topic`, so a manifest can never carry a
+    /// field outside the declared Manifest schema, so a manifest can never carry a
     /// secret without the parse failing loudly.
     pub fn parse(toml_str: &str) -> Result<Manifest, ManifestError> {
         let manifest: Manifest = toml::from_str(toml_str)?;
         if manifest.projects.is_empty() {
             return Err(ManifestError::Empty);
+        }
+        for (index, project) in manifest.projects.iter().enumerate() {
+            let modes = usize::from(project.topic.is_some())
+                + usize::from(!project.topics.is_empty())
+                + usize::from(!project.priority_topics.is_empty());
+            if modes > 1 {
+                return Err(ManifestError::ConflictingTopics { index });
+            }
         }
         Ok(manifest)
     }
@@ -66,12 +84,25 @@ impl Manifest {
     }
 
     /// Build a Manifest for one Project, reflecting a run's identities and
-    /// topic — the shared basis for both `init` and `about --save`.
+    /// Cohort selection — the shared basis for both `init` and `about --save`.
     pub fn from_identities(identities: &[Identity], topic: Option<&str>) -> Manifest {
+        let selection = topic
+            .map(|topic| CohortSelection::Exact(vec![topic.to_string()]))
+            .unwrap_or(CohortSelection::Declared);
+        Self::from_identities_with_selection(identities, selection)
+    }
+
+    pub fn from_identities_with_selection(
+        identities: &[Identity],
+        selection: CohortSelection,
+    ) -> Manifest {
+        let (topics, priority_topics) = selection_fields(selection);
         Manifest {
             projects: vec![ManifestProject {
                 identities: identities.iter().map(|id| id.canonical()).collect(),
-                topic: topic.map(str::to_string),
+                topic: None,
+                topics,
+                priority_topics,
             }],
         }
     }
@@ -80,12 +111,25 @@ impl Manifest {
     /// work (ADR-0006) — `init --orcid`'s counterpart to `from_identities`'s
     /// single Project.
     pub fn from_orcid_works(works: &[PaperId], topic: Option<&str>) -> Manifest {
+        let selection = topic
+            .map(|topic| CohortSelection::Exact(vec![topic.to_string()]))
+            .unwrap_or(CohortSelection::Declared);
+        Self::from_orcid_works_with_selection(works, selection)
+    }
+
+    pub fn from_orcid_works_with_selection(
+        works: &[PaperId],
+        selection: CohortSelection,
+    ) -> Manifest {
+        let (topics, priority_topics) = selection_fields(selection);
         Manifest {
             projects: works
                 .iter()
                 .map(|id| ManifestProject {
                     identities: vec![Identity::Paper(id.clone()).canonical()],
-                    topic: topic.map(str::to_string),
+                    topic: None,
+                    topics: topics.clone(),
+                    priority_topics: priority_topics.clone(),
                 })
                 .collect(),
         }
@@ -93,6 +137,18 @@ impl Manifest {
 }
 
 impl ManifestProject {
+    pub fn cohort_selection(&self) -> CohortSelection {
+        if !self.topics.is_empty() {
+            CohortSelection::Exact(self.topics.clone())
+        } else if !self.priority_topics.is_empty() {
+            CohortSelection::Priority(self.priority_topics.clone())
+        } else if let Some(topic) = &self.topic {
+            CohortSelection::Exact(vec![topic.clone()])
+        } else {
+            CohortSelection::Declared
+        }
+    }
+
     /// Parse this entry's identity strings into a Project. `index` is this
     /// entry's 0-based position among `Manifest.projects`, named on error so
     /// a bad identity in a large Manifest is easy to locate.
@@ -104,6 +160,14 @@ impl ManifestProject {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|source| ManifestError::Identity { index, source })?;
         Ok(Project::new(identities))
+    }
+}
+
+fn selection_fields(selection: CohortSelection) -> (Vec<String>, Vec<String>) {
+    match selection {
+        CohortSelection::Declared => (Vec::new(), Vec::new()),
+        CohortSelection::Exact(topics) => (topics, Vec::new()),
+        CohortSelection::Priority(topics) => (Vec::new(), topics),
     }
 }
 
@@ -218,7 +282,7 @@ mod tests {
 
         let parsed = Manifest::parse(&toml_str).unwrap();
         assert_eq!(parsed, manifest);
-        assert_eq!(parsed.projects[0].topic.as_deref(), Some("bioinformatics"));
+        assert_eq!(parsed.projects[0].topics, ["bioinformatics"]);
 
         let project = parsed.projects[0].to_project(0).unwrap();
         assert_eq!(project.identities, identities);
@@ -240,10 +304,7 @@ mod tests {
             manifest.projects[1].identities,
             vec!["pmid:31234567".to_string()]
         );
-        assert_eq!(
-            manifest.projects[1].topic.as_deref(),
-            Some("bioinformatics")
-        );
+        assert_eq!(manifest.projects[1].topics, ["bioinformatics"]);
 
         let toml_str = manifest.to_toml_string().unwrap();
         let parsed = Manifest::parse(&toml_str).unwrap();
@@ -256,5 +317,48 @@ mod tests {
         let manifest = Manifest::from_identities(&identities, None);
         let toml_str = manifest.to_toml_string().unwrap();
         assert!(!toml_str.contains("topic"));
+    }
+
+    #[test]
+    fn legacy_topic_parses_while_plural_exact_and_priority_fields_round_trip() {
+        let legacy = Manifest::parse(
+            r#"[[project]]
+identities = ["github:owner/repo"]
+topic = "legacy"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            legacy.projects[0].cohort_selection(),
+            CohortSelection::Exact(vec!["legacy".into()])
+        );
+
+        for selection in [
+            CohortSelection::Exact(vec!["second".into(), "first".into()]),
+            CohortSelection::Priority(vec!["important".into(), "next".into()]),
+        ] {
+            let manifest = Manifest::from_identities_with_selection(
+                &[Identity::parse("github:owner/repo").unwrap()],
+                selection.clone(),
+            );
+            let toml = manifest.to_toml_string().unwrap();
+            let parsed = Manifest::parse(&toml).unwrap();
+            assert_eq!(parsed.projects[0].cohort_selection(), selection);
+            assert!(!toml.contains("\ntopic ="), "{toml}");
+        }
+    }
+
+    #[test]
+    fn manifest_rejects_combined_topic_modes() {
+        for conflicting in [
+            "topic = \"legacy\"\ntopics = [\"exact\"]",
+            "topic = \"legacy\"\npriority_topics = [\"first\"]",
+            "topics = [\"exact\"]\npriority_topics = [\"first\"]",
+        ] {
+            let toml =
+                format!("[[project]]\nidentities = [\"github:owner/repo\"]\n{conflicting}\n");
+            let error = Manifest::parse(&toml).unwrap_err();
+            assert!(error.to_string().contains("mutually exclusive"), "{error}");
+        }
     }
 }

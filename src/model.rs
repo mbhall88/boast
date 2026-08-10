@@ -17,6 +17,63 @@ pub enum Category {
     Attention,
 }
 
+/// How GitHub Cohorts are selected for ranking. This is Project-level domain
+/// vocabulary shared by the CLI, Manifest, and GitHub Provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CohortSelection {
+    /// Rank every topic declared by the repository, in declared order.
+    Declared,
+    /// Rank exactly these topics, in the supplied order.
+    Exact(Vec<String>),
+    /// Rank these declared topics first, then every remaining declared topic.
+    Priority(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum CohortSelectionError {
+    #[error("'{topic}' is not declared by the repository; use --topic {topic} to request an explicit Cohort")]
+    UndeclaredPriority { topic: String },
+}
+
+impl CohortSelection {
+    pub fn validate_declared_topics(
+        &self,
+        declared: &[String],
+    ) -> Result<(), CohortSelectionError> {
+        if let Self::Priority(priorities) = self {
+            if let Some(topic) = priorities
+                .iter()
+                .find(|topic| !declared.iter().any(|declared| declared == *topic))
+            {
+                return Err(CohortSelectionError::UndeclaredPriority {
+                    topic: topic.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn topics_in_collection_order(&self, declared: &[String]) -> Vec<String> {
+        match self {
+            Self::Declared => declared
+                .iter()
+                .filter(|topic| !topic.is_empty())
+                .cloned()
+                .collect(),
+            Self::Exact(topics) => topics.clone(),
+            Self::Priority(priorities) => {
+                let mut ordered = priorities.clone();
+                for topic in declared {
+                    if !topic.is_empty() && !ordered.contains(topic) {
+                        ordered.push(topic.clone());
+                    }
+                }
+                ordered
+            }
+        }
+    }
+}
+
 impl Category {
     pub fn label(self) -> &'static str {
         match self {
@@ -149,6 +206,10 @@ pub enum Outcome {
         metrics: Vec<Metric>,
         #[serde(skip_serializing_if = "Option::is_none", default)]
         metadata: Option<PaperMetadata>,
+        /// Operational explanations for a successful but partial collection.
+        /// These remain Provider Notes, not Metric notices (ADR-0008).
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        provider_notes: Vec<String>,
     },
     /// The Identity legitimately has no presence on this channel (shown N/A).
     NotApplicable { note: String },
@@ -179,7 +240,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub const SCHEMA_VERSION: u32 = 1;
+    pub const SCHEMA_VERSION: u32 = 2;
 
     /// True if any fetch is still in the `Failed` state (drives the exit code).
     pub fn has_failures(&self) -> bool {
@@ -1018,6 +1079,7 @@ mod tests {
                     identity: "doi:10.1/x".into(),
                     category: Category::Citations,
                     outcome: Outcome::Values {
+                        provider_notes: Vec::new(),
                         metrics: vec![Metric {
                             name: "citations".into(),
                             category: Category::Citations,
@@ -1062,5 +1124,28 @@ mod tests {
         let json = serde_json::to_string(&snap).unwrap();
         let back: Snapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(snap, back);
+    }
+
+    #[test]
+    fn schema_v1_values_without_provider_notes_remain_readable() {
+        let json = r#"{
+            "schema_version": 1,
+            "tool": "boast",
+            "tool_version": "0.4.0",
+            "created_at": "2026-08-07T00:00:00Z",
+            "identities": ["github:owner/repo"],
+            "results": [{
+                "provider": "github",
+                "identity": "github:owner/repo",
+                "category": "code",
+                "outcome": {"status": "values", "metrics": [], "metadata": null}
+            }]
+        }"#;
+
+        let snapshot: Snapshot = serde_json::from_str(json).unwrap();
+        let Outcome::Values { provider_notes, .. } = &snapshot.results[0].outcome else {
+            panic!("expected Values")
+        };
+        assert!(provider_notes.is_empty());
     }
 }

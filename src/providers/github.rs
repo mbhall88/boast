@@ -4,12 +4,16 @@
 //! the API rate limit.
 
 use serde::Deserialize;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use crate::model::{Category, Identity, Metric, MetricValue, Outcome, RepoId, Window};
+use crate::model::{
+    Category, CohortSelection, CohortSelectionError, Identity, Metric, MetricValue, Outcome,
+    RepoId, Window,
+};
 use crate::provider::{classify_status, KeyRequirement, Provider};
-use crate::transport::Transport;
+use crate::transport::{HttpResponse, Transport};
 
 const API: &str = "https://api.github.com";
 
@@ -24,9 +28,10 @@ pub(crate) const RELEASE_DOWNLOADS_METRIC: &str = "release_downloads";
 
 pub struct GitHub {
     token: Option<String>,
-    /// An explicit topic to rank the repo within, overriding its own declared
-    /// topics. `None` ranks within every topic the repo declares.
-    topic: Option<String>,
+    selection: CohortSelection,
+    wait_limit: Option<Duration>,
+    now_epoch_seconds: Box<dyn Fn() -> u64 + Send + Sync>,
+    sleep: Box<dyn Fn(Duration) + Send + Sync>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,14 +70,78 @@ impl GitHub {
     /// Construct with an explicit Cohort `topic` to rank the repo within. When
     /// `None`, the repo is ranked within each topic it declares.
     pub fn with_topic(topic: Option<String>) -> Self {
+        let selection = match topic {
+            Some(topic) => CohortSelection::Exact(vec![topic]),
+            None => CohortSelection::Declared,
+        };
+        Self::with_cohort_options(selection, None)
+    }
+
+    pub fn with_cohort_options(selection: CohortSelection, wait_limit: Option<Duration>) -> Self {
         Self {
             token: std::env::var("GITHUB_TOKEN").ok().filter(|s| !s.is_empty()),
-            topic,
+            selection,
+            wait_limit,
+            now_epoch_seconds: Box::new(|| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            }),
+            sleep: Box::new(std::thread::sleep),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_runtime(
+        selection: CohortSelection,
+        wait_limit: Option<Duration>,
+        token: Option<String>,
+        now_epoch_seconds: impl Fn() -> u64 + Send + Sync + 'static,
+        sleep: impl Fn(Duration) + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            token,
+            selection,
+            wait_limit,
+            now_epoch_seconds: Box::new(now_epoch_seconds),
+            sleep: Box::new(sleep),
         }
     }
 
     pub fn has_token(&self) -> bool {
         self.token.is_some()
+    }
+
+    /// Validate priority selection against the repository's declared topics
+    /// before orchestration. Fetch failures are deferred to the normal
+    /// Provider Outcome; only confirmed invalid input is returned here.
+    pub fn validate_cohort_selection(
+        &self,
+        identity: &Identity,
+        transport: &dyn Transport,
+    ) -> Result<(), CohortSelectionError> {
+        if !matches!(self.selection, CohortSelection::Priority(_)) {
+            return Ok(());
+        }
+        let Identity::Repo(repo) = identity else {
+            return Ok(());
+        };
+        let owned = self.request_headers();
+        let headers: Vec<(&str, &str)> = owned
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        let Ok(response) = transport.get_with_headers(&repo_url(repo), &headers) else {
+            return Ok(());
+        };
+        if response.status != 200 {
+            return Ok(());
+        }
+        let Ok(core) = serde_json::from_str::<GhRepo>(&response.body) else {
+            return Ok(());
+        };
+        self.selection.validate_declared_topics(&core.topics)
     }
 
     /// Owned request headers; a view over these is passed to the transport.
@@ -159,9 +228,12 @@ impl Provider for GitHub {
             }
         };
 
+        let topics = self.selection.topics_in_collection_order(&core.topics);
+
         let canonical = identity.canonical();
         let as_of = OffsetDateTime::now_utc();
         let mut metrics = Vec::new();
+        let mut provider_notes = Vec::new();
         let mut push = |name: &str, value: MetricValue, source: &str, note: Option<&str>| {
             metrics.push(Metric {
                 name: name.into(),
@@ -226,30 +298,72 @@ impl Provider for GitHub {
         // topic — one rank per topic, either the explicit override or every
         // topic the repo declares. A failed search omits that topic's rank
         // (never a fake rank); GitHub caps a repo at 20 topics.
-        let topics: Vec<&str> = match &self.topic {
-            Some(t) => vec![t.as_str()],
-            None => core
-                .topics
-                .iter()
-                .map(String::as_str)
-                .filter(|t| !t.is_empty())
-                .collect(),
-        };
         if let Some(stars) = core.stargazers_count {
-            for topic in topics {
-                if let Some((rank, cohort_size, source)) =
-                    cohort_rank(transport, topic, stars, &headers)
-                {
-                    let note = format!(
-                        "#{rank} of {cohort_size} repos tagged '{topic}'; \
-                         GitHub topics are inconsistently applied"
-                    );
-                    push(
-                        &format!("cohort_rank ({topic})"),
-                        MetricValue::Count(rank),
-                        &source,
-                        Some(&note),
-                    );
+            let mut waited = Duration::ZERO;
+            'topics: for (index, topic) in topics.iter().enumerate() {
+                loop {
+                    match cohort_rank(transport, topic, stars, &headers) {
+                        Ok((rank, cohort_size, source)) => {
+                            let note = format!(
+                                "#{rank} of {cohort_size} repos tagged '{topic}'; \
+                             GitHub topics are inconsistently applied"
+                            );
+                            push(
+                                &format!("cohort_rank ({topic})"),
+                                MetricValue::Count(rank),
+                                &source,
+                                Some(&note),
+                            );
+                            break;
+                        }
+                        Err(failure) => {
+                            let confirmed_delay = confirmed_search_wait(
+                                failure.response.as_deref(),
+                                (self.now_epoch_seconds)(),
+                            );
+                            let wait_limit_expired = self
+                                .wait_limit
+                                .zip(confirmed_delay)
+                                .is_some_and(|(limit, delay)| {
+                                    waited.checked_add(delay).is_none_or(|total| total > limit)
+                                });
+                            if let (Some(limit), Some(delay)) = (self.wait_limit, confirmed_delay) {
+                                if waited
+                                    .checked_add(delay)
+                                    .is_some_and(|total| total <= limit)
+                                {
+                                    tracing::warn!(
+                                    "GitHub Cohort ranks: collected {index} of {}; waiting {}s for confirmed Search reset ({}s of {}s cumulative limit)",
+                                    topics.len(),
+                                    delay.as_secs(),
+                                    (waited + delay).as_secs(),
+                                    limit.as_secs(),
+                                );
+                                    (self.sleep)(delay);
+                                    waited += delay;
+                                    continue;
+                                }
+                            }
+                            let skipped: Vec<&str> =
+                                topics[index..].iter().map(String::as_str).collect();
+                            let note = partial_cohort_note(
+                                index,
+                                topics.len(),
+                                &skipped,
+                                self.has_token(),
+                                &failure,
+                                self.wait_limit,
+                                wait_limit_expired,
+                            );
+                            tracing::warn!(
+                            "GitHub Cohort ranks: collected {index} of {}; skipped {} topic(s); see Provider Note",
+                            topics.len(),
+                            skipped.len(),
+                        );
+                            provider_notes.push(note);
+                            break 'topics;
+                        }
+                    }
                 }
             }
         }
@@ -257,8 +371,35 @@ impl Provider for GitHub {
         Outcome::Values {
             metrics,
             metadata: None,
+            provider_notes,
         }
     }
+}
+
+fn confirmed_search_wait(
+    response: Option<&HttpResponse>,
+    now_epoch_seconds: u64,
+) -> Option<Duration> {
+    let response = response?;
+    if !matches!(response.status, 403 | 429)
+        || response.header("x-ratelimit-resource") != Some("search")
+    {
+        return None;
+    }
+    if let Some(seconds) = response
+        .header("retry-after")
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+    {
+        return Some(Duration::from_secs(seconds));
+    }
+    if response.header("x-ratelimit-remaining") != Some("0") {
+        return None;
+    }
+    let reset = response.header("x-ratelimit-reset")?.parse::<u64>().ok()?;
+    Some(Duration::from_secs(
+        reset.saturating_sub(now_epoch_seconds).max(1),
+    ))
 }
 
 fn repo_url(repo: &RepoId) -> String {
@@ -350,22 +491,94 @@ fn cohort_rank(
     topic: &str,
     stars: u64,
     headers: &[(&str, &str)],
-) -> Option<(u64, u64, String)> {
+) -> Result<(u64, u64, String), SearchFailure> {
     let cohort_url = search_url(&format!("topic:{topic}"));
     let cohort_size = search_count(transport, &cohort_url, headers)?;
     let above_url = search_url(&format!("topic:{topic} stars:>{stars}"));
     let above = search_count(transport, &above_url, headers)?;
-    Some((above + 1, cohort_size, above_url))
+    Ok((above + 1, cohort_size, above_url))
+}
+
+#[derive(Debug)]
+struct SearchFailure {
+    reason: String,
+    kind: SearchFailureKind,
+    response: Option<Box<HttpResponse>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchFailureKind {
+    Quota,
+    Server,
+    Malformed,
+    Transport,
+    OtherStatus,
 }
 
 /// Read the `total_count` from a GitHub repository-search response.
-fn search_count(transport: &dyn Transport, url: &str, headers: &[(&str, &str)]) -> Option<u64> {
-    let resp = transport.get_with_headers(url, headers).ok()?;
+fn search_count(
+    transport: &dyn Transport,
+    url: &str,
+    headers: &[(&str, &str)],
+) -> Result<u64, SearchFailure> {
+    let resp = transport
+        .get_with_headers(url, headers)
+        .map_err(|error| SearchFailure {
+            reason: error.to_string(),
+            kind: SearchFailureKind::Transport,
+            response: None,
+        })?;
     if resp.status != 200 {
-        return None;
+        let kind = match resp.status {
+            403 | 429 => SearchFailureKind::Quota,
+            500..=599 => SearchFailureKind::Server,
+            _ => SearchFailureKind::OtherStatus,
+        };
+        return Err(SearchFailure {
+            reason: format!("GitHub Search returned HTTP {}", resp.status),
+            kind,
+            response: Some(Box::new(resp)),
+        });
     }
-    let search: GhSearch = serde_json::from_str(&resp.body).ok()?;
-    Some(search.total_count)
+    let search: GhSearch = serde_json::from_str(&resp.body).map_err(|error| SearchFailure {
+        reason: format!("unexpected GitHub Search response: {error}"),
+        kind: SearchFailureKind::Malformed,
+        response: Some(Box::new(resp)),
+    })?;
+    Ok(search.total_count)
+}
+
+fn partial_cohort_note(
+    collected: usize,
+    requested: usize,
+    skipped: &[&str],
+    has_token: bool,
+    failure: &SearchFailure,
+    wait_limit: Option<Duration>,
+    wait_limit_expired: bool,
+) -> String {
+    let remedy = if wait_limit_expired {
+        format!(
+            "The {}s cumulative --wait-for-cohort-ranks limit expired; increase that limit or narrow the selection with --topic/--priority-topic",
+            wait_limit.unwrap_or_default().as_secs()
+        )
+    } else {
+        match failure.kind {
+            SearchFailureKind::Quota if wait_limit.is_some() && has_token => "A GITHUB_TOKEN was present, but GitHub did not supply a confirmed Search reset within the configured wait; retry later or narrow the selection with --topic/--priority-topic".to_string(),
+            SearchFailureKind::Quota if wait_limit.is_some() => "GitHub did not supply a confirmed Search reset within the configured wait. Set GITHUB_TOKEN for higher usual Search capacity, retry later, or narrow the selection with --topic/--priority-topic; a token does not guarantee completeness".to_string(),
+            SearchFailureKind::Quota if has_token => "A GITHUB_TOKEN was present, but token-backed Search capacity still does not guarantee completeness; use --wait-for-cohort-ranks to wait across a confirmed reset, or narrow the selection with --topic/--priority-topic".to_string(),
+            SearchFailureKind::Quota => "Set GITHUB_TOKEN to raise GitHub's usual Search capacity from 10 to 30 requests per minute; this does not guarantee completeness. Use --wait-for-cohort-ranks to wait across a confirmed reset, or narrow the selection with --topic/--priority-topic".to_string(),
+            SearchFailureKind::Server => "GitHub Search reported a server failure; retry later, or narrow the selection with --topic/--priority-topic".to_string(),
+            SearchFailureKind::Malformed => "GitHub Search returned malformed data; retry, and report the response if the problem persists".to_string(),
+            SearchFailureKind::Transport => "Check the network connection and retry".to_string(),
+            SearchFailureKind::OtherStatus => "Check GitHub Search access and retry".to_string(),
+        }
+    };
+    format!(
+        "GitHub Cohort ranks partially collected: {collected} of {requested}; skipped topics: {}. Collection stopped because {}. {remedy}.",
+        skipped.join(", "),
+        failure.reason,
+    )
 }
 
 /// Build a repository-search URL for `query`, percent-encoding the only two
@@ -381,6 +594,8 @@ mod tests {
     use super::*;
     use crate::model::PaperId;
     use crate::transport::{MockTransport, TransportError};
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::{Arc, Mutex};
 
     fn repo() -> Identity {
         Identity::Repo(RepoId::parse("BurntSushi/ripgrep").unwrap())
@@ -509,19 +724,19 @@ mod tests {
 
     #[test]
     fn request_headers_include_bearer_only_when_token_present() {
-        let with = GitHub {
-            token: Some("secret".into()),
-            topic: None,
-        };
+        let with = GitHub::with_runtime(
+            CohortSelection::Declared,
+            None,
+            Some("secret".into()),
+            || 0,
+            |_| {},
+        );
         let headers = with.request_headers();
         assert!(headers
             .iter()
             .any(|(k, v)| k == "Authorization" && v == "Bearer secret"));
 
-        let without = GitHub {
-            token: None,
-            topic: None,
-        };
+        let without = GitHub::with_runtime(CohortSelection::Declared, None, None, || 0, |_| {});
         let headers = without.request_headers();
         assert!(!headers.iter().any(|(k, _)| k == "Authorization"));
         assert!(headers.iter().any(|(k, _)| k == "Accept"));
@@ -637,6 +852,319 @@ mod tests {
         let metrics = fetch_metrics(&GitHub::new(), &t);
         assert!(metrics.iter().any(|m| m.name == "stars"));
         assert_eq!(cohort_ranks(&metrics).count(), 0);
+    }
+
+    fn twenty_topic_repo() -> String {
+        let topics = (1..=20)
+            .map(|n| format!(r#""topic{n:02}""#))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            r#"{{"stargazers_count":61,"forks_count":31,"subscribers_count":4,"created_at":"2020-06-09T00:00:00Z","topics":[{topics}]}}"#
+        )
+    }
+
+    fn limited_search_transport(successful_requests: usize) -> MockTransport {
+        let mut replies = vec![(200, r#"{"total_count": 100}"#); successful_requests];
+        replies.push((403, "rate limited"));
+        MockTransport::new()
+            .on_sequence("search/repositories", &replies)
+            .on("/contributors", 500, "")
+            .on("/releases", 500, "")
+            .on("api.github.com/repos/", 200, twenty_topic_repo())
+    }
+
+    #[test]
+    fn anonymous_search_exhaustion_preserves_five_ranks_and_names_every_skipped_topic() {
+        let outcome = GitHub::with_runtime(CohortSelection::Declared, None, None, || 0, |_| {})
+            .fetch(&repo(), &limited_search_transport(10));
+        let Outcome::Values {
+            metrics,
+            provider_notes,
+            ..
+        } = outcome
+        else {
+            panic!("expected Values")
+        };
+
+        assert!(metrics.iter().any(|m| m.name == "stars"));
+        assert_eq!(cohort_ranks(&metrics).count(), 5);
+        assert_eq!(provider_notes.len(), 1);
+        let note = &provider_notes[0];
+        assert!(note.contains("5 of 20"), "{note}");
+        assert!(note.contains("topic06"), "{note}");
+        assert!(note.contains("topic20"), "{note}");
+        assert!(note.contains("GITHUB_TOKEN"), "{note}");
+        assert!(note.contains("does not guarantee"), "{note}");
+    }
+
+    #[test]
+    fn authenticated_search_exhaustion_preserves_fifteen_ranks_and_names_the_remaining_five() {
+        let outcome = GitHub::with_runtime(
+            CohortSelection::Declared,
+            None,
+            Some("token".into()),
+            || 0,
+            |_| {},
+        )
+        .fetch(&repo(), &limited_search_transport(30));
+        let Outcome::Values {
+            metrics,
+            provider_notes,
+            ..
+        } = outcome
+        else {
+            panic!("expected Values")
+        };
+
+        assert_eq!(cohort_ranks(&metrics).count(), 15);
+        let note = &provider_notes[0];
+        assert!(note.contains("15 of 20"), "{note}");
+        assert!(note.contains("topic16"), "{note}");
+        assert!(note.contains("topic20"), "{note}");
+        assert!(!note.contains("topic15"), "{note}");
+        assert!(!note.contains("guarantees completeness"), "{note}");
+    }
+
+    #[test]
+    fn exact_selection_ranks_only_supplied_topics_in_supplied_order() {
+        let t = cohort_transport(
+            include_str!("../../tests/cassettes/github_repo.json"),
+            r#"{"total_count": 2}"#,
+            r#"{"total_count": 100}"#,
+        );
+        let metrics = fetch_metrics(
+            &GitHub::with_cohort_options(
+                CohortSelection::Exact(vec!["second".into(), "first".into()]),
+                None,
+            ),
+            &t,
+        );
+        let names: Vec<_> = cohort_ranks(&metrics).map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["cohort_rank (second)", "cohort_rank (first)"]);
+    }
+
+    #[test]
+    fn priority_selection_ranks_declared_priorities_then_every_remaining_declared_topic() {
+        let t = cohort_transport(
+            include_str!("../../tests/cassettes/github_repo_topics.json"),
+            r#"{"total_count": 0}"#,
+            r#"{"total_count": 100}"#,
+        );
+        let metrics = fetch_metrics(
+            &GitHub::with_cohort_options(
+                CohortSelection::Priority(vec!["bioinformatics".into(), "rna-seq".into()]),
+                None,
+            ),
+            &t,
+        );
+        let names: Vec<_> = cohort_ranks(&metrics).map(|m| m.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "cohort_rank (bioinformatics)",
+                "cohort_rank (rna-seq)",
+                "cohort_rank (nextflow)",
+            ]
+        );
+    }
+
+    #[test]
+    fn undeclared_priority_is_a_usage_error_directing_the_user_to_exact_selection() {
+        let t = MockTransport::new().on(
+            "api.github.com/repos/",
+            200,
+            include_str!("../../tests/cassettes/github_repo_topics.json"),
+        );
+        let github = GitHub::with_cohort_options(
+            CohortSelection::Priority(vec!["not-declared".into()]),
+            None,
+        );
+        let error = github
+            .validate_cohort_selection(&repo(), &t)
+            .expect_err("expected usage error");
+        assert!(error.to_string().contains("not-declared"), "{error}");
+        assert!(error.to_string().contains("--topic"), "{error}");
+    }
+
+    struct ScriptedSearchTransport {
+        other: MockTransport,
+        search: Mutex<VecDeque<HttpResponse>>,
+    }
+
+    impl Transport for ScriptedSearchTransport {
+        fn get_with_headers(
+            &self,
+            url: &str,
+            headers: &[(&str, &str)],
+        ) -> Result<HttpResponse, crate::transport::TransportError> {
+            if url.contains("search/repositories") {
+                let mut response = self
+                    .search
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("unexpected GitHub Search request");
+                response.url = url.into();
+                Ok(response)
+            } else {
+                self.other.get_with_headers(url, headers)
+            }
+        }
+    }
+
+    fn response(status: u16, body: &str, headers: &[(&str, &str)]) -> HttpResponse {
+        HttpResponse {
+            status,
+            body: body.into(),
+            url: String::new(),
+            headers: headers
+                .iter()
+                .map(|(name, value)| (name.to_ascii_lowercase(), value.to_string()))
+                .collect::<HashMap<_, _>>(),
+        }
+    }
+
+    fn two_topic_search_script(search: Vec<HttpResponse>) -> ScriptedSearchTransport {
+        ScriptedSearchTransport {
+            other: MockTransport::new()
+                .on("/contributors", 500, "")
+                .on("/releases", 500, "")
+                .on(
+                    "api.github.com/repos/",
+                    200,
+                    r#"{"stargazers_count":10,"topics":["first","second"]}"#,
+                ),
+            search: Mutex::new(search.into()),
+        }
+    }
+
+    #[test]
+    fn wait_mode_follows_a_confirmed_search_reset_and_completes_remaining_ranks() {
+        let transport = two_topic_search_script(vec![
+            response(200, r#"{"total_count":100}"#, &[]),
+            response(200, r#"{"total_count":1}"#, &[]),
+            response(
+                403,
+                "rate limited",
+                &[
+                    ("x-ratelimit-resource", "search"),
+                    ("x-ratelimit-remaining", "0"),
+                    ("x-ratelimit-reset", "102"),
+                ],
+            ),
+            response(200, r#"{"total_count":100}"#, &[]),
+            response(200, r#"{"total_count":1}"#, &[]),
+        ]);
+        let delays = Arc::new(Mutex::new(Vec::new()));
+        let recorded = delays.clone();
+        let github = GitHub::with_runtime(
+            CohortSelection::Declared,
+            Some(Duration::from_secs(5)),
+            None,
+            || 100,
+            move |delay| recorded.lock().unwrap().push(delay),
+        );
+
+        let Outcome::Values {
+            metrics,
+            provider_notes,
+            ..
+        } = github.fetch(&repo(), &transport)
+        else {
+            panic!("expected Values")
+        };
+        assert_eq!(cohort_ranks(&metrics).count(), 2);
+        assert!(provider_notes.is_empty());
+        assert_eq!(*delays.lock().unwrap(), [Duration::from_secs(2)]);
+    }
+
+    #[test]
+    fn wait_mode_honours_its_cumulative_limit_and_never_sleeps_for_unrelated_failures() {
+        for headers in [
+            vec![
+                ("x-ratelimit-resource", "search"),
+                ("x-ratelimit-remaining", "0"),
+                ("retry-after", "2"),
+            ],
+            vec![
+                ("x-ratelimit-resource", "core"),
+                ("x-ratelimit-remaining", "0"),
+                ("retry-after", "1"),
+            ],
+        ] {
+            let transport = two_topic_search_script(vec![
+                response(200, r#"{"total_count":100}"#, &[]),
+                response(200, r#"{"total_count":1}"#, &[]),
+                response(403, "rate limited", &headers),
+            ]);
+            let delays = Arc::new(Mutex::new(Vec::new()));
+            let recorded = delays.clone();
+            let github = GitHub::with_runtime(
+                CohortSelection::Declared,
+                Some(Duration::from_secs(1)),
+                None,
+                || 100,
+                move |delay| recorded.lock().unwrap().push(delay),
+            );
+
+            let Outcome::Values {
+                metrics,
+                provider_notes,
+                ..
+            } = github.fetch(&repo(), &transport)
+            else {
+                panic!("expected Values")
+            };
+            assert_eq!(cohort_ranks(&metrics).count(), 1);
+            assert_eq!(provider_notes.len(), 1);
+            assert!(delays.lock().unwrap().is_empty());
+            if headers
+                .iter()
+                .any(|(name, value)| *name == "x-ratelimit-resource" && *value == "search")
+            {
+                assert!(provider_notes[0].contains("cumulative"));
+                assert!(provider_notes[0].contains("increase"));
+            } else {
+                assert!(provider_notes[0].contains("did not supply a confirmed Search reset"));
+            }
+        }
+    }
+
+    #[test]
+    fn a_search_failure_stops_before_attempting_later_topics() {
+        let transport = ScriptedSearchTransport {
+            other: MockTransport::new()
+                .on("/contributors", 500, "")
+                .on("/releases", 500, "")
+                .on(
+                    "api.github.com/repos/",
+                    200,
+                    r#"{"stargazers_count":10,"topics":["first","second","must-not-run"]}"#,
+                ),
+            search: Mutex::new(
+                vec![
+                    response(200, r#"{"total_count":100}"#, &[]),
+                    response(200, r#"{"total_count":1}"#, &[]),
+                    response(500, "server error", &[]),
+                ]
+                .into(),
+            ),
+        };
+
+        let Outcome::Values {
+            metrics,
+            provider_notes,
+            ..
+        } = GitHub::new().fetch(&repo(), &transport)
+        else {
+            panic!("expected Values")
+        };
+        assert_eq!(cohort_ranks(&metrics).count(), 1);
+        assert!(provider_notes[0].contains("second, must-not-run"));
+        assert!(provider_notes[0].contains("retry later"));
+        assert!(!provider_notes[0].contains("GITHUB_TOKEN"));
+        assert!(!provider_notes[0].contains("--wait-for-cohort-ranks"));
     }
 
     #[test]

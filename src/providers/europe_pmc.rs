@@ -82,6 +82,7 @@ impl EuropePmc {
         };
 
         Outcome::Values {
+            provider_notes: Vec::new(),
             metrics: vec![Metric {
                 name: "mentions".into(),
                 category: Category::Attention,
@@ -132,6 +133,7 @@ impl EuropePmc {
         };
 
         Outcome::Values {
+            provider_notes: Vec::new(),
             metrics: vec![Metric {
                 name: "citations".into(),
                 category: Category::Citations,

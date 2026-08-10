@@ -70,6 +70,7 @@ impl Wikipedia {
         };
 
         Outcome::Values {
+            provider_notes: Vec::new(),
             metrics: vec![Metric {
                 name: "wikipedia_mentions".into(),
                 category: Category::Attention,

@@ -81,6 +81,7 @@ impl Homebrew {
             }
         } else {
             Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics,
                 metadata: None,
             }

@@ -176,7 +176,8 @@ all.
 ## Save the identifiers for next time
 
 Re-typing `--repo`/`--package`/the DOI on every run gets old fast. `--save` writes a
-Manifest capturing exactly the identities (and `--topic`, if given) used in this run:
+Manifest capturing exactly the identities and any exact or prioritised Cohort selection
+used in this run:
 
 ```
 boast about --repo samtools/samtools \
@@ -213,11 +214,21 @@ identities = [
 
 ## Ranking within a cohort
 
-If the repo is tagged with a GitHub topic (or you want to force one), boast can report
-where it ranks by stars among every repo sharing that topic:
+By default, boast attempts to rank a repository by stars within every GitHub topic it
+declares. Each rank costs two GitHub Search requests, so a repository with many topics can
+exhaust Search's separate per-minute allowance before every rank is collected. The default
+is best-effort: core GitHub Metrics and completed ranks remain successful, the command exits
+0, stderr warns, and the Snapshot carries a durable Provider Note naming every skipped
+topic. Re-rendering that Snapshot later reproduces the note without touching the network.
+
+Use repeatable `--topic` for an exact list in command-line order. These topics do not need
+to be declared by the repository:
 
 ```
-boast about --repo samtools/samtools --topic bioinformatics 10.1093/gigascience/giab008
+boast about --repo samtools/samtools \
+            --topic bioinformatics \
+            --topic sequence-analysis \
+            10.1093/gigascience/giab008
 ```
 
 The Code section gains a `cohort_rank` row, and a matching disclaimer appears in
@@ -232,6 +243,48 @@ Notices:
   #16 of 15275 repos tagged 'bioinformatics'; GitHub topics are inconsistently applied
 ```
 
-Omit `--topic` and boast ranks within whatever topics the repo has actually declared on
-GitHub — see the Cohort entry in [Concepts](../concepts.md) for the disclaimer this
-ranking always carries.
+Use repeatable `--priority-topic` when every declared topic still matters but some should
+consume the available Search allowance first. Priorities are attempted in command-line
+order, followed by the remaining declared topics. An undeclared priority is rejected as a
+usage error; use `--topic` when you deliberately want an undeclared Cohort. The exact and
+priority modes are mutually exclusive.
+
+```shell
+boast about --repo samtools/samtools \
+            --priority-topic bioinformatics \
+            --priority-topic nextflow
+```
+
+For a run that may wait across GitHub Search quota resets, opt in with
+`--wait-for-cohort-ranks`. The bare flag allows up to five cumulative minutes; set another
+positive limit with `=`, for example `--wait-for-cohort-ranks=30s` or
+`--wait-for-cohort-ranks=1h`. Boast waits only when GitHub identifies the exhausted resource
+as Search and supplies a reset or retry time. It never sleeps on an unrelated 403, malformed
+response, or server error. If the cumulative limit expires, the run remains a successful
+partial result with a Provider Note.
+
+`GITHUB_TOKEN` usually raises Search capacity from 10 to 30 requests per minute, but each
+Cohort needs two requests and a token therefore does not guarantee all 20 possible topics
+fit in one window. Exact selection, priority order, and opt-in waiting remain useful with a
+token.
+
+Generated Manifests persist exact selection as `topics`:
+
+```toml
+[[project]]
+identities = ["github:samtools/samtools"]
+topics = ["bioinformatics", "sequence-analysis"]
+```
+
+Priority selection is persisted as `priority_topics`. The fields are mutually exclusive;
+older Manifests containing singular `topic = "bioinformatics"` remain readable. Command-line
+topic options override a Manifest's selection. Waiting is a runtime choice and is never
+stored in the Manifest.
+
+```toml
+[[project]]
+identities = ["github:samtools/samtools"]
+priority_topics = ["bioinformatics", "nextflow"]
+```
+
+See the Cohort entry in [Concepts](../concepts.md) for the disclaimer every ranking carries.

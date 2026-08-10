@@ -128,7 +128,11 @@ impl Crossref {
                 note: "Crossref returned no metadata for this DOI".into(),
             }
         } else {
-            Outcome::Values { metrics, metadata }
+            Outcome::Values {
+                metrics,
+                metadata,
+                provider_notes: Vec::new(),
+            }
         }
     }
 }
@@ -190,7 +194,9 @@ mod tests {
         let t = MockTransport::new().on("api.crossref.org/works/", 200, cassette);
 
         let (metrics, metadata) = match Crossref.fetch(&doi(), &t) {
-            Outcome::Values { metrics, metadata } => (metrics, metadata),
+            Outcome::Values {
+                metrics, metadata, ..
+            } => (metrics, metadata),
             other => panic!("expected Values, got {other:?}"),
         };
 

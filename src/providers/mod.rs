@@ -14,9 +14,10 @@ pub mod pypi;
 pub mod quay;
 pub mod wikipedia;
 
-use crate::model::{Category, Identity, PaperId};
+use crate::model::{Category, CohortSelection, Identity, PaperId};
 use crate::provider::{KeyRequirement, Provider};
 use crate::report::CATEGORY_ORDER;
+use std::time::Duration;
 
 /// Percent-encode a query-parameter value using RFC 3986's unreserved set.
 /// Provider search APIs use punctuation as query syntax, so encoding the full
@@ -42,6 +43,16 @@ pub fn default_providers() -> Vec<Box<dyn Provider>> {
 /// The default set, with an explicit GitHub Cohort `topic` override threaded to
 /// the GitHub Provider. `None` lets each repo rank within every topic it declares.
 pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provider>> {
+    let selection = topic
+        .map(|topic| CohortSelection::Exact(vec![topic]))
+        .unwrap_or(CohortSelection::Declared);
+    default_providers_with_github(selection, None)
+}
+
+pub fn default_providers_with_github(
+    selection: CohortSelection,
+    wait_limit: Option<Duration>,
+) -> Vec<Box<dyn Provider>> {
     vec![
         Box::new(openalex::OpenAlex),
         Box::new(crossref::Crossref),
@@ -49,7 +60,7 @@ pub fn default_providers_with_topic(topic: Option<String>) -> Vec<Box<dyn Provid
         Box::new(europe_pmc::EuropePmc),
         Box::new(wikipedia::Wikipedia),
         Box::new(altmetric::Altmetric::new()),
-        Box::new(github::GitHub::with_topic(topic)),
+        Box::new(github::GitHub::with_cohort_options(selection, wait_limit)),
         Box::new(crates_io::CratesIo),
         Box::new(anaconda::Anaconda),
         Box::new(pypi::Pypi),

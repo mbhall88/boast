@@ -232,7 +232,7 @@ pub fn render(old: &Snapshot, new: &Snapshot, diff: &Diff) -> String {
 
     let provider_notes: Vec<_> = report::provider_operational_notes(new)
         .into_iter()
-        .filter(|n| n.kind == report::OutcomeKind::Failed)
+        .filter(|n| n.source == report::ProviderNoteSource::Failed)
         .collect();
     report::write_provider_notes_terminal(&mut out, provider_notes);
 
@@ -311,6 +311,7 @@ mod tests {
             identity: metrics[0].identity.clone(),
             category: metrics[0].category,
             outcome: Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics,
                 metadata: None,
             },

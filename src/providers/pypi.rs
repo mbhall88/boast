@@ -44,6 +44,7 @@ impl Pypi {
 
         match resp.data.and_then(|d| d.last_month) {
             Some(downloads) => Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     name: "downloads".into(),
                     category: Category::Downloads,

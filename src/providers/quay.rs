@@ -100,6 +100,7 @@ impl Quay {
         let pulls: u64 = stats.iter().map(|d| d.count).sum();
 
         Outcome::Values {
+            provider_notes: Vec::new(),
             metrics: vec![Metric {
                 name: "pulls".into(),
                 category: Category::Downloads,

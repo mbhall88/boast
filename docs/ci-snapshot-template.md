@@ -63,7 +63,9 @@ jobs:
       # would additionally punch a silent gap in the history that a later
       # `diff` couldn't explain.
       - name: Run boast about
-        run: boast about manifest.toml --snapshot-dir snapshots
+        # Scheduled jobs can afford to wait for a confirmed GitHub Search
+        # reset; the five-minute cumulative cap prevents an unbounded job.
+        run: boast about manifest.toml --snapshot-dir snapshots --wait-for-cohort-ranks=5m
         env:
           # Auto-provided by Actions — raises GitHub's API rate limit for the
           # Code category. No repo secret needed for this one.
@@ -152,9 +154,10 @@ boast diff snapshots/20260301T030001Z-doi-10.1234-journal.xyz.json \
 ## Keys as repo secrets
 
 - `GITHUB_TOKEN` — the workflow above uses the token Actions injects automatically
-  (`secrets.GITHUB_TOKEN`); you don't need to create anything. It only raises the rate limit
-  for GitHub repo metrics — omitting it still works, just at the unauthenticated 60
-  requests/hour limit.
+  (`secrets.GITHUB_TOKEN`); you don't need to create anything. It raises GitHub's core limit
+  and usually raises the separate Search limit from 10 to 30 requests per minute. A Cohort
+  rank costs two Search requests, so a token does not guarantee that all 20 possible topics
+  fit in one window; the workflow's bounded wait can continue across a confirmed reset.
 - `ALTMETRIC_KEY` — optional, and only relevant if you have an Altmetric **Details Page
   API** key (not an Explorer key — they're different products with different credentials).
   Add it under **Settings → Secrets and variables → Actions → New repository secret** on

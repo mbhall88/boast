@@ -61,6 +61,7 @@ impl DockerHub {
 
         match repo.pull_count {
             Some(pulls) => Outcome::Values {
+                provider_notes: Vec::new(),
                 metrics: vec![Metric {
                     name: "downloads".into(),
                     category: Category::Downloads,

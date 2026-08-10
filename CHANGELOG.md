@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/mbhall88/boast/compare/0.4.0...0.5.0) (2026-08-10)
+
+
+### Features
+
+* make GitHub Cohort collection explicit ([#83](https://github.com/mbhall88/boast/issues/83)) ([#84](https://github.com/mbhall88/boast/issues/84)) ([02cbcf0](https://github.com/mbhall88/boast/commit/02cbcf043efe84003829349440915e51e17d8ace))
+
 ## [0.4.0](https://github.com/mbhall88/boast/compare/0.3.0...0.4.0) (2026-08-06)
 
 

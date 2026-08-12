@@ -13,6 +13,7 @@ use time::OffsetDateTime;
 pub enum Category {
     Code,
     Downloads,
+    Usage,
     Citations,
     Attention,
 }
@@ -79,6 +80,7 @@ impl Category {
         match self {
             Category::Code => "Code",
             Category::Downloads => "Downloads",
+            Category::Usage => "Usage",
             Category::Citations => "Citations",
             Category::Attention => "Attention",
         }
@@ -240,7 +242,7 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub const SCHEMA_VERSION: u32 = 2;
+    pub const SCHEMA_VERSION: u32 = 3;
 
     /// True if any fetch is still in the `Failed` state (drives the exit code).
     pub fn has_failures(&self) -> bool {
@@ -1147,5 +1149,40 @@ mod tests {
             panic!("expected Values")
         };
         assert!(provider_notes.is_empty());
+    }
+
+    /// A schema-v2 Snapshot predates `Category::Usage` (issue #79) and so can
+    /// only ever carry the four older Categories — it must still parse under
+    /// the current schema version rather than being rejected as stale.
+    #[test]
+    fn schema_v2_snapshots_without_a_usage_category_remain_readable() {
+        let json = r#"{
+            "schema_version": 2,
+            "tool": "boast",
+            "tool_version": "0.5.0",
+            "created_at": "2026-08-07T00:00:00Z",
+            "identities": ["github:owner/repo"],
+            "results": [{
+                "provider": "github",
+                "identity": "github:owner/repo",
+                "category": "downloads",
+                "outcome": {"status": "values", "metrics": [], "metadata": null, "provider_notes": []}
+            }]
+        }"#;
+
+        let snapshot: Snapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snapshot.results[0].category, Category::Downloads);
+    }
+
+    #[test]
+    fn category_usage_round_trips_as_the_snake_case_tag() {
+        assert_eq!(
+            serde_json::to_string(&Category::Usage).unwrap(),
+            "\"usage\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Category>("\"usage\"").unwrap(),
+            Category::Usage
+        );
     }
 }

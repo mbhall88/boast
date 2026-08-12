@@ -23,7 +23,7 @@ The span of time a Metric's value covers. Either **cumulative** (all-time, e.g. 
 _Avoid_: Period, timeframe, range
 
 **Manifest**:
-An optional file listing one or more Projects, their Identities, and any chosen or prioritised Cohort topics for repeatable or batch runs. Never required: a single Project can be given inline via CLI flags, and a bare paper (DOI/PMID) needs neither. The tool can generate a Manifest from a run, so it is a save-file, not a hand-authored prerequisite. Holds no secrets.
+An optional file listing one or more Projects, their Identities, any chosen or prioritised Cohort topics, and optional Providers to enable for repeatable or batch runs. Never required: a single Project can be given inline via CLI flags, and a bare paper (DOI/PMID) needs neither. The tool can generate a Manifest from a run, so it is a save-file, not a hand-authored prerequisite. Holds no secrets.
 _Avoid_: Config, spec, input file
 
 **Snapshot**:
@@ -39,7 +39,7 @@ A Provider's licence or terms text, recorded on the Metric it accompanies and sh
 _Avoid_: Disclaimer, licence blurb, footnote, attribution
 
 **Provider Note**:
-An operational explanation carried by a Provider×Identity Outcome — why a fetch yielded no value, failed, or returned only part of the requested data ("no API key configured", "rate limited after five of twenty Cohort ranks"). Not a Notice: it describes collection status rather than the terms behind a Metric, so it appears in its own Report section keyed by Provider and Outcome kind (ADR-0008).
+An explanation carried by a Provider×Identity Outcome that doesn't belong on any single Metric: why a fetch yielded no value, failed, or returned only part of the requested data ("no API key configured", "rate limited after five of twenty Cohort ranks"), or — for a fully successful fetch — provenance detail about how several inputs were aggregated into the reported Metrics ("matched 23 Galaxy CoDex suites: ..."). Not a Notice: it describes collection status or provenance rather than the terms behind a Metric, so it appears in its own Report section keyed by Provider and Outcome kind (ADR-0008).
 _Avoid_: Error message, warning, notice, detail
 
 **Cohort**:
@@ -51,11 +51,11 @@ A derived Metric produced by combining compatible Metrics — e.g. a total downl
 _Avoid_: Total, sum, aggregate
 
 **Category**:
-The family a Metric belongs to, used to group the Report. Four in v1: **Code** (stars, forks, contributors, release downloads, cohort rank…), **Downloads** (per-channel package/install counts + Rollup), **Citations** (counts + field-normalized FWCI/percentile/FCR/RCR), and **Attention** (open-access status, Wikipedia mentions, and indexed scholarly repository mentions keyless by default; full news/blog/policy/patent/social breakdown via Altmetric when a key is present).
+The family a Metric belongs to, used to group the Report. Five: **Code** (stars, forks, contributors, release downloads, Cohort rank…), **Downloads** (per-channel package/install counts + Rollup), **Usage** (tool executions, server-scoped user accounts, and public-instance availability), **Citations** (counts + field-normalized FWCI/percentile/FCR/RCR), and **Attention** (open-access status, Wikipedia mentions, and indexed scholarly repository mentions keyless by default; full news/blog/policy/patent/social breakdown via Altmetric when a key is present).
 _Avoid_: Kind, group, type, section
 
 **Provider**:
-A component for one source that, given an Identity, fetches zero or more Metrics from one external service (GitHub, Bioconda, OpenAlex, …). Providers are pluggable; the system ships a curated default set.
+A component for one source that, given an Identity, fetches zero or more Metrics from one external service (GitHub, Bioconda, OpenAlex, …). Providers are pluggable; the system ships a curated default set and may offer others that a user explicitly enables.
 _Avoid_: Source, backend, connector, adapter
 
 **Identity**:

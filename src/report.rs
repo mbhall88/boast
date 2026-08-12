@@ -9,10 +9,12 @@ use crate::model::{Category, Metric, MetricValue, Outcome, Snapshot, Window};
 use crate::rollup;
 
 /// Display order for Categories, shared with [`crate::diff`]'s renderer so
-/// both group Metrics identically.
-pub(crate) const CATEGORY_ORDER: [Category; 4] = [
+/// both group Metrics identically. Usage sits after Downloads and before
+/// Citations, matching CONTEXT.md's Category glossary order (issue #79).
+pub(crate) const CATEGORY_ORDER: [Category; 5] = [
     Category::Code,
     Category::Downloads,
+    Category::Usage,
     Category::Citations,
     Category::Attention,
 ];

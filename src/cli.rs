@@ -16,9 +16,11 @@ use crate::model::{
 };
 use crate::orchestrator;
 use crate::orcid::{self, OrcidWork};
+use crate::provider::Provider;
 use crate::providers::github::GitHub;
 use crate::providers::{
-    default_providers, default_providers_with_github, paper_provider_count, render_providers,
+    default_providers, default_providers_with_github, optional_providers, paper_provider_count,
+    render_providers, resolve_optional_providers,
 };
 use crate::report::{render_markdown, render_prose, render_terminal};
 use crate::transport::{RetryingTransport, Transport, UreqTransport};
@@ -189,6 +191,13 @@ pub struct AboutArgs {
     #[arg(short = 's', long = "save", value_name = "FILE")]
     pub save: Option<PathBuf>,
 
+    /// Enable an optional Provider by name (repeatable), e.g. `galaxy`. Off
+    /// by default (see `boast providers`' DEFAULT column) — an unknown name
+    /// is a usage error. Overrides, rather than adds to, a Manifest input's
+    /// own `enable_providers` for every Project it runs.
+    #[arg(short = 'e', long = "enable-provider", value_name = "NAME")]
+    pub enable_providers: Vec<String>,
+
     /// Maximum number of distinct hosts fetched from concurrently. Never
     /// more than one request is in flight against the *same* host no matter
     /// how high this is set (ADR-0007). Raising it past the number
@@ -235,6 +244,35 @@ fn parse_positive_duration(value: &str) -> Result<Duration, String> {
     Ok(Duration::from_secs(seconds))
 }
 
+/// Resolve `--enable-provider`/Manifest `enable_providers` names into
+/// concrete optional Providers, or log and return the usage-error exit code
+/// (2) on an unknown name — shared by every entry point that accepts
+/// `enable_providers`, so the same names are validated the same way whether
+/// they came from the CLI or a Manifest.
+fn resolve_enabled_providers(names: &[String]) -> Result<Vec<Box<dyn Provider>>, i32> {
+    resolve_optional_providers(names).map_err(|e| {
+        tracing::error!("{e}");
+        2
+    })
+}
+
+/// Build the full Provider registry for one fetch: the default set (with the
+/// given GitHub Cohort selection) plus whichever optional Providers
+/// `enable_providers` names. Shared by `run_about` and `run_about_manifest`
+/// so the CLI-enable/Manifest-enable path is one real piece of code — not
+/// duplicated per call site, and directly unit-testable without a network
+/// transport (unlike `run_about`/`run_about_manifest` themselves, which
+/// always build a real `runtime_transport()`).
+fn build_providers(
+    selection: CohortSelection,
+    wait_limit: Option<Duration>,
+    enable_providers: &[String],
+) -> Result<Vec<Box<dyn Provider>>, i32> {
+    let mut providers = default_providers_with_github(selection, wait_limit);
+    providers.extend(resolve_enabled_providers(enable_providers)?);
+    Ok(providers)
+}
+
 fn cohort_selection(topics: &[String], priority_topics: &[String]) -> CohortSelection {
     if !topics.is_empty() {
         CohortSelection::Exact(topics.to_vec())
@@ -266,6 +304,11 @@ pub struct InitArgs {
         conflicts_with = "topic"
     )]
     pub priority_topic: Vec<String>,
+
+    /// Optional Providers to record in the Manifest's `enable_providers`
+    /// (repeatable), e.g. `galaxy`. An unknown name is a usage error.
+    #[arg(short = 'e', long = "enable-provider", value_name = "NAME")]
+    pub enable_providers: Vec<String>,
 
     /// Where to write the Manifest.
     #[arg(
@@ -426,7 +469,14 @@ fn run_about(args: AboutArgs) -> i32 {
     if let Err(code) = validate_cohort_selection(&project, &selection, &transport) {
         return code;
     }
-    let providers = default_providers_with_github(selection.clone(), args.wait_for_cohort_ranks);
+    let providers = match build_providers(
+        selection.clone(),
+        args.wait_for_cohort_ranks,
+        &args.enable_providers,
+    ) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
 
     let snapshot =
         orchestrator::run_with_concurrency(&project, &providers, &transport, args.threads);
@@ -436,7 +486,12 @@ fn run_about(args: AboutArgs) -> i32 {
     }
 
     if let Some(save_path) = &args.save {
-        if let Err(code) = save_manifest(&project.identities, selection, save_path) {
+        if let Err(code) = save_manifest(
+            &project.identities,
+            selection,
+            &args.enable_providers,
+            save_path,
+        ) {
             return code;
         }
     }
@@ -507,7 +562,18 @@ fn run_about_manifest(path: &std::path::Path, args: &AboutArgs) -> i32 {
         if let Err(code) = validate_cohort_selection(&project, &selection, &transport) {
             return code;
         }
-        let providers = default_providers_with_github(selection, args.wait_for_cohort_ranks);
+        // An explicit `--enable-provider` overrides every Project's own
+        // Manifest selection entirely, the same override rule `--topic`
+        // already applies just above.
+        let enable_names = if !args.enable_providers.is_empty() {
+            &args.enable_providers
+        } else {
+            &entry.enable_providers
+        };
+        let providers = match build_providers(selection, args.wait_for_cohort_ranks, enable_names) {
+            Ok(p) => p,
+            Err(code) => return code,
+        };
 
         let snapshot =
             orchestrator::run_with_concurrency(&project, &providers, &transport, args.threads);
@@ -648,9 +714,11 @@ fn warn_if_missing_github_token(identities: &[Identity]) {
 fn save_manifest(
     identities: &[Identity],
     selection: CohortSelection,
+    enable_providers: &[String],
     path: &std::path::Path,
 ) -> Result<(), i32> {
-    let manifest = Manifest::from_identities_with_selection(identities, selection);
+    let manifest =
+        Manifest::from_identities_with_selection(identities, selection, enable_providers);
     let toml_str = manifest.to_toml_string().map_err(|e| {
         tracing::error!("could not serialise manifest: {e}");
         2
@@ -683,9 +751,14 @@ fn run_init(args: InitArgs) -> i32 {
         return 2;
     }
 
+    if let Err(code) = resolve_enabled_providers(&args.enable_providers) {
+        return code;
+    }
+
     match save_manifest(
         &identities,
         cohort_selection(&args.topic, &args.priority_topic),
+        &args.enable_providers,
         &args.output,
     ) {
         Ok(()) => 0,
@@ -719,6 +792,10 @@ fn run_init_orcid(args: &InitArgs) -> i32 {
                 return 2;
             }
         }
+    }
+
+    if let Err(code) = resolve_enabled_providers(&args.enable_providers) {
+        return code;
     }
 
     let transport = RetryingTransport::new(UreqTransport::new());
@@ -774,6 +851,7 @@ fn run_init_orcid(args: &InitArgs) -> i32 {
     let manifest = Manifest::from_orcid_works_with_selection(
         &identified,
         cohort_selection(&args.topic, &args.priority_topic),
+        &args.enable_providers,
     );
     let toml_str = match manifest.to_toml_string() {
         Ok(s) => s,
@@ -870,13 +948,14 @@ fn run_diff(args: DiffArgs) -> i32 {
 /// List the registered Providers. Never touches the network — the registry
 /// itself, not any live data, is what's being reported on.
 fn run_providers() -> i32 {
-    let providers = default_providers();
     print!(
         "{}",
-        render_providers(&providers, |env_var| std::env::var(env_var)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .is_some())
+        render_providers(&default_providers(), &optional_providers(), |env_var| {
+            std::env::var(env_var)
+                .ok()
+                .filter(|s| !s.is_empty())
+                .is_some()
+        })
     );
     0
 }
@@ -1415,5 +1494,90 @@ pmid:31234567
             Err(IdentityError::IsOrcid(_))
         ));
         assert_eq!(run_about(a), 2);
+    }
+
+    #[test]
+    fn enable_provider_flag_accepts_short_and_long_form_and_is_repeatable() {
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "owner/repo",
+            "-e",
+            "galaxy",
+            "--enable-provider",
+            "galaxy",
+        ]))
+        .unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        assert_eq!(a.enable_providers, vec!["galaxy", "galaxy"]);
+
+        let cli = Cli::try_parse_from(norm(&["boast", "init", "10.1/x", "-e", "galaxy"])).unwrap();
+        let Command::Init(i) = cli.command else {
+            panic!("expected Init")
+        };
+        assert_eq!(i.enable_providers, vec!["galaxy"]);
+    }
+
+    #[test]
+    fn an_unknown_enable_provider_name_is_a_usage_error() {
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "owner/repo",
+            "--enable-provider",
+            "not-a-real-provider",
+        ]))
+        .unwrap();
+        let Command::About(a) = cli.command else {
+            panic!("expected About")
+        };
+        // No network call happens before this validation runs, so this is
+        // safe to call directly (same pattern as
+        // `about_save_combined_with_a_manifest_input_is_rejected` above).
+        assert_eq!(run_about(a), 2);
+    }
+
+    #[test]
+    fn init_rejects_an_unknown_enable_provider_name() {
+        let cli = Cli::try_parse_from(norm(&[
+            "boast",
+            "init",
+            "10.1/x",
+            "--enable-provider",
+            "not-a-real-provider",
+        ]))
+        .unwrap();
+        let Command::Init(i) = cli.command else {
+            panic!("expected Init")
+        };
+        assert_eq!(run_init(i), 2);
+    }
+
+    /// `build_providers` is the one real function both `run_about` and
+    /// `run_about_manifest` call to turn `enable_providers` into a fetched
+    /// Provider — so this is the CLI-enable *and* Manifest-enable path
+    /// itself, not a proxy for it, exercised without any network transport.
+    #[test]
+    fn build_providers_enables_galaxy_only_when_named() {
+        let without = build_providers(CohortSelection::Declared, None, &[]).unwrap();
+        assert!(!without.iter().any(|p| p.name() == "galaxy"));
+
+        let with =
+            build_providers(CohortSelection::Declared, None, &["galaxy".to_string()]).unwrap();
+        assert!(with.iter().any(|p| p.name() == "galaxy"));
+        // The default registry is still present alongside it.
+        assert!(with.iter().any(|p| p.name() == "github"));
+    }
+
+    #[test]
+    fn build_providers_rejects_an_unknown_enable_provider_name() {
+        assert!(matches!(
+            build_providers(
+                CohortSelection::Declared,
+                None,
+                &["not-a-real-provider".to_string()]
+            ),
+            Err(2)
+        ));
     }
 }

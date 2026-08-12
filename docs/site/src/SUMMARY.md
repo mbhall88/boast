@@ -9,6 +9,7 @@
   - [A tool with a repo and packages](./guides/repo-and-packages.md)
   - [A researcher's whole publication record](./guides/orcid.md)
   - [Automating snapshots in CI](./guides/ci-snapshots.md)
+  - [Galaxy tool-execution usage](./guides/galaxy-usage.md)
 - [Providers reference](./reference/providers.md)
 - [CLI reference](./reference/cli.md)
 - [Design decisions](./design/index.md)
@@ -22,3 +23,4 @@
   - [0008 — Operational Provider notes are not licence notices](./design/0008-operational-notes-are-not-licence-notices.md)
   - [0009 — Container pulls roll up, with the caveat travelling](./design/0009-container-pulls-roll-up-with-a-travelling-caveat.md)
   - [0010 — An unreadable channel is NotApplicable, not Failed](./design/0010-unreadable-is-not-unretrieved.md)
+  - [0011 — Optional Providers, and Galaxy CoDex over live dashboards](./design/0011-optional-providers-and-galaxy-codex-as-source-of-truth.md)

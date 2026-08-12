@@ -7,6 +7,7 @@ pub mod crossref;
 pub mod dimensions;
 pub mod docker_hub;
 pub mod europe_pmc;
+pub mod galaxy;
 pub mod github;
 pub mod homebrew;
 pub mod openalex;
@@ -70,6 +71,36 @@ pub fn default_providers_with_github(
     ]
 }
 
+/// Providers that exist but are never fetched by a default run — a user
+/// must explicitly opt in, via `--enable-provider <name>` or a Manifest's
+/// `enable_providers` (issue #79). Galaxy is the first: a repository-level
+/// CoDex lookup that most Projects have no presence in, so it would add a
+/// mostly-empty request to every default run rather than a useful one.
+pub fn optional_providers() -> Vec<Box<dyn Provider>> {
+    vec![Box::new(galaxy::Galaxy)]
+}
+
+/// Resolve `--enable-provider`/Manifest `enable_providers` names into the
+/// optional Providers they name. An unknown name is an error listing every
+/// recognised optional Provider, since every caller treats it as a CLI usage
+/// error (exit code 2) — there is no silent partial-enable.
+pub fn resolve_optional_providers(names: &[String]) -> Result<Vec<Box<dyn Provider>>, String> {
+    let all = optional_providers();
+    let known: Vec<&str> = all.iter().map(|p| p.name()).collect();
+    for name in names {
+        if !known.contains(&name.as_str()) {
+            return Err(format!(
+                "unknown optional provider '{name}' (available: {})",
+                known.join(", ")
+            ));
+        }
+    }
+    Ok(all
+        .into_iter()
+        .filter(|p| names.iter().any(|n| n == p.name()))
+        .collect())
+}
+
 /// How many default Providers fetch metrics for a Paper Identity — the
 /// per-work request cost `boast init --orcid` warns about before expanding a
 /// large record. Computed from the real registry (never hard-coded), so the
@@ -83,16 +114,18 @@ pub fn paper_provider_count() -> usize {
         .count()
 }
 
-/// Render the given registry (usually [`default_providers`]) as a table for
-/// `boast providers`: name, Category, default-enabled status, and key
-/// requirement (issue #16). Grouped in [`CATEGORY_ORDER`], the same display
-/// order every other Report uses.
+/// Render `default` plus `optional` as a table for `boast providers`: name,
+/// Category, default-enabled status, and key requirement (issue #16).
+/// Grouped in [`CATEGORY_ORDER`], the same display order every other Report
+/// uses.
 ///
-/// Every Provider passed in is, by construction, part of the default set —
-/// there's no separate optional/non-default registry yet (see the spec's
-/// Out-of-Scope list) — so the DEFAULT column reads "yes" throughout; the
-/// column exists so the answer stays visible once a non-default Provider
-/// exists to contrast it with.
+/// Every Provider in `default` reads "yes" in the DEFAULT column and every
+/// Provider in `optional` reads "no" (issue #79 — Galaxy is the first
+/// non-default Provider, enabled only via `--enable-provider`/a Manifest's
+/// `enable_providers`). A Provider named in both would be listed twice; the
+/// two registries are disjoint by construction (see
+/// [`crate::providers::optional_providers`]'s doc comment), so callers don't
+/// need to de-duplicate here.
 ///
 /// `key_is_set` looks up whether a named environment variable currently has
 /// a non-empty value. Taking it as a parameter — the same seam pattern as
@@ -100,23 +133,34 @@ pub fn paper_provider_count() -> usize {
 /// instead of mutating the real process environment, which is global and
 /// shared across every test running in this process.
 pub fn render_providers(
-    providers: &[Box<dyn Provider>],
+    default: &[Box<dyn Provider>],
+    optional: &[Box<dyn Provider>],
     key_is_set: impl Fn(&str) -> bool,
 ) -> String {
     struct Row {
         name: &'static str,
         category: Category,
+        is_default: bool,
         key: String,
     }
 
-    let mut rows: Vec<Row> = providers
-        .iter()
-        .map(|p| Row {
-            name: p.name(),
-            category: p.category(),
-            key: describe_key(p.key_requirement(), &key_is_set),
-        })
-        .collect();
+    let rows_from = |providers: &[Box<dyn Provider>],
+                     is_default: bool,
+                     key_is_set: &dyn Fn(&str) -> bool|
+     -> Vec<Row> {
+        providers
+            .iter()
+            .map(|p| Row {
+                name: p.name(),
+                category: p.category(),
+                is_default,
+                key: describe_key(p.key_requirement(), key_is_set),
+            })
+            .collect()
+    };
+
+    let mut rows: Vec<Row> = rows_from(default, true, &key_is_set);
+    rows.extend(rows_from(optional, false, &key_is_set));
     rows.sort_by_key(|r| {
         CATEGORY_ORDER
             .iter()
@@ -124,11 +168,8 @@ pub fn render_providers(
             .unwrap_or(usize::MAX)
     });
 
-    // Every row's DEFAULT column reads "yes" (see the doc comment above), but
-    // its width is still computed rather than hand-padded to a literal, so a
-    // future non-"yes" value can't silently fall out of alignment with the
-    // header.
-    const DEFAULT_COL: &str = "yes";
+    const YES: &str = "yes";
+    const NO: &str = "no";
     let w_name = "PROVIDER"
         .len()
         .max(rows.iter().map(|r| r.name.len()).max().unwrap_or(0));
@@ -138,7 +179,7 @@ pub fn render_providers(
             .max()
             .unwrap_or(0),
     );
-    let w_default = "DEFAULT".len().max(DEFAULT_COL.len());
+    let w_default = "DEFAULT".len().max(YES.len()).max(NO.len());
 
     let mut out = String::new();
     out.push_str(&format!(
@@ -146,8 +187,9 @@ pub fn render_providers(
         "PROVIDER", "CATEGORY", "DEFAULT",
     ));
     for r in rows {
+        let default_col = if r.is_default { YES } else { NO };
         out.push_str(&format!(
-            "{:<w_name$}  {:<w_category$}  {DEFAULT_COL:<w_default$}  {}\n",
+            "{:<w_name$}  {:<w_category$}  {default_col:<w_default$}  {}\n",
             r.name,
             r.category.label(),
             r.key,
@@ -159,7 +201,7 @@ pub fn render_providers(
 /// The `KEY` column's text for one Provider: `key_is_set` is only consulted
 /// for `Optional`/`Required`, never for `None`, so a keyless Provider's row
 /// never depends on environment state at all.
-fn describe_key(requirement: KeyRequirement, key_is_set: &impl Fn(&str) -> bool) -> String {
+fn describe_key(requirement: KeyRequirement, key_is_set: &dyn Fn(&str) -> bool) -> String {
     let (label, env_var) = match requirement {
         KeyRequirement::None => return "none".to_string(),
         KeyRequirement::Optional { env_var } => ("optional", env_var),
@@ -226,7 +268,7 @@ mod tests {
             fake("a_code", Category::Code, KeyRequirement::None),
             fake("m_attention", Category::Attention, KeyRequirement::None),
         ];
-        let out = render_providers(&providers, |_| false);
+        let out = render_providers(&providers, &[], |_| false);
         let code_pos = out.find("a_code").unwrap();
         let downloads_pos = out.find("z_downloads").unwrap();
         let attention_pos = out.find("m_attention").unwrap();
@@ -251,7 +293,7 @@ mod tests {
                 KeyRequirement::Required { env_var: "REQ_KEY" },
             ),
         ];
-        let out = render_providers(&providers, |name| name == "OPT_TOKEN");
+        let out = render_providers(&providers, &[], |name| name == "OPT_TOKEN");
 
         let row = |needle: &str| out.lines().find(|l| l.contains(needle)).unwrap();
         assert!(row("keyless").contains("none"));
@@ -260,15 +302,15 @@ mod tests {
     }
 
     #[test]
-    fn every_row_is_marked_default_enabled() {
-        let providers: Vec<Box<dyn Provider>> =
-            vec![fake("x", Category::Code, KeyRequirement::None)];
-        let out = render_providers(&providers, |_| false);
-        assert!(out
-            .lines()
-            .find(|l| l.contains("x"))
-            .unwrap()
-            .contains("yes"));
+    fn a_default_provider_is_marked_yes_and_an_optional_one_is_marked_no() {
+        let default: Vec<Box<dyn Provider>> = vec![fake("d", Category::Code, KeyRequirement::None)];
+        let optional: Vec<Box<dyn Provider>> =
+            vec![fake("o", Category::Usage, KeyRequirement::None)];
+        let out = render_providers(&default, &optional, |_| false);
+
+        let row = |needle: &str| out.lines().find(|l| l.contains(needle)).unwrap();
+        assert!(row("d").contains("yes"));
+        assert!(row("o").contains("no"));
     }
 
     #[test]
@@ -279,15 +321,54 @@ mod tests {
 
     #[test]
     fn reflects_the_real_registry_with_no_hard_coded_drift() {
-        let providers = default_providers();
-        let out = render_providers(&providers, |_| false);
+        let default = default_providers();
+        let optional = optional_providers();
+        let out = render_providers(&default, &optional, |_| false);
 
-        for p in &providers {
+        for p in default.iter().chain(&optional) {
             assert!(out.contains(p.name()), "missing {} in output", p.name());
         }
-        // Header plus exactly one row per registered Provider.
-        assert_eq!(out.lines().count(), providers.len() + 1);
+        // Header plus exactly one row per registered Provider, default or optional.
+        assert_eq!(out.lines().count(), default.len() + optional.len() + 1);
         assert!(out.contains("required: ALTMETRIC_KEY"));
         assert!(out.contains("optional: GITHUB_TOKEN"));
+    }
+
+    #[test]
+    fn the_real_registrys_galaxy_row_is_under_usage_and_marked_not_default() {
+        let out = render_providers(&default_providers(), &optional_providers(), |_| false);
+        let row = out.lines().find(|l| l.starts_with("galaxy ")).unwrap();
+        assert!(row.contains("Usage"));
+        assert!(row.contains(" no "));
+        assert!(row.contains("none"));
+    }
+
+    #[test]
+    fn galaxy_is_optional_never_part_of_the_default_registry() {
+        assert!(!default_providers().iter().any(|p| p.name() == galaxy::NAME));
+        assert!(optional_providers()
+            .iter()
+            .any(|p| p.name() == galaxy::NAME));
+    }
+
+    #[test]
+    fn resolve_optional_providers_finds_a_known_name() {
+        let resolved = resolve_optional_providers(&["galaxy".to_string()]).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].name(), galaxy::NAME);
+    }
+
+    #[test]
+    fn resolve_optional_providers_rejects_an_unknown_name_naming_the_known_ones() {
+        let Err(err) = resolve_optional_providers(&["not-a-real-provider".to_string()]) else {
+            panic!("expected an error");
+        };
+        assert!(err.contains("not-a-real-provider"));
+        assert!(err.contains("galaxy"));
+    }
+
+    #[test]
+    fn resolve_optional_providers_of_an_empty_list_is_empty() {
+        assert!(resolve_optional_providers(&[]).unwrap().is_empty());
     }
 }

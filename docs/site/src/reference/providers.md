@@ -19,6 +19,7 @@ pypi        Downloads  yes      none
 homebrew    Downloads  yes      none
 dockerhub   Downloads  yes      none
 quay        Downloads  yes      none
+galaxy      Usage      no       none
 openalex    Citations  yes      none
 crossref    Citations  yes      none
 dimensions  Citations  yes      none

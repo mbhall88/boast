@@ -2,7 +2,7 @@
 
 ## Status
 
-accepted — the prose carve-out in Considered options is refined by ADR-0009: what travels into prose is any `Metric.note` attached to a headline number, not only a licence notice. Extended during #83 so a successful `Values` Outcome may also carry Provider Notes when requested secondary Metrics were only partly collected; operational messages still stay out of prose.
+accepted — the prose carve-out in Considered options is refined by ADR-0009: what travels into prose is any `Metric.note` attached to a headline number, not only a licence notice. Extended during #83 so a successful `Values` Outcome may also carry Provider Notes when requested secondary Metrics were only partly collected; operational messages still stay out of prose. Extended again during #79 (ADR-0011) so a fully successful `Values` Outcome may also carry a Provider Note recording audit/provenance detail — which CoDex suites a multi-suite aggregation matched — that belongs to the whole fetch rather than any single Metric; this is a third, distinct reason a Provider Note exists (why nothing was collected, why collection was partial, or what a successful aggregation actually drew from), not a widening of "operational."
 
 ## Context and decision
 

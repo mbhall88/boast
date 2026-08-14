@@ -38,6 +38,13 @@ pub struct ManifestProject {
     /// Declared Cohorts to attempt first, in order, before the remainder.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub priority_topics: Vec<String>,
+    /// Optional Providers to fetch for this Project, by name (e.g.
+    /// `"galaxy"`), on top of the default registry (issue #79). An explicit
+    /// `--enable-provider` on the command line overrides this list entirely
+    /// rather than adding to it, the same override rule `about`'s `--topic`
+    /// already applies to a Project's declared Cohort selection.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub enable_providers: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -89,12 +96,13 @@ impl Manifest {
         let selection = topic
             .map(|topic| CohortSelection::Exact(vec![topic.to_string()]))
             .unwrap_or(CohortSelection::Declared);
-        Self::from_identities_with_selection(identities, selection)
+        Self::from_identities_with_selection(identities, selection, &[])
     }
 
     pub fn from_identities_with_selection(
         identities: &[Identity],
         selection: CohortSelection,
+        enable_providers: &[String],
     ) -> Manifest {
         let (topics, priority_topics) = selection_fields(selection);
         Manifest {
@@ -103,6 +111,7 @@ impl Manifest {
                 topic: None,
                 topics,
                 priority_topics,
+                enable_providers: enable_providers.to_vec(),
             }],
         }
     }
@@ -114,12 +123,13 @@ impl Manifest {
         let selection = topic
             .map(|topic| CohortSelection::Exact(vec![topic.to_string()]))
             .unwrap_or(CohortSelection::Declared);
-        Self::from_orcid_works_with_selection(works, selection)
+        Self::from_orcid_works_with_selection(works, selection, &[])
     }
 
     pub fn from_orcid_works_with_selection(
         works: &[PaperId],
         selection: CohortSelection,
+        enable_providers: &[String],
     ) -> Manifest {
         let (topics, priority_topics) = selection_fields(selection);
         Manifest {
@@ -130,6 +140,7 @@ impl Manifest {
                     topic: None,
                     topics: topics.clone(),
                     priority_topics: priority_topics.clone(),
+                    enable_providers: enable_providers.to_vec(),
                 })
                 .collect(),
         }
@@ -320,6 +331,40 @@ mod tests {
     }
 
     #[test]
+    fn enable_providers_round_trips_through_toml_and_is_omitted_when_empty() {
+        let identities = vec![Identity::parse("github:owner/repo").unwrap()];
+        let manifest = Manifest::from_identities_with_selection(
+            &identities,
+            CohortSelection::Declared,
+            &["galaxy".to_string()],
+        );
+        let toml_str = manifest.to_toml_string().unwrap();
+        assert!(toml_str.contains("enable_providers"));
+
+        let parsed = Manifest::parse(&toml_str).unwrap();
+        assert_eq!(parsed, manifest);
+        assert_eq!(parsed.projects[0].enable_providers, ["galaxy"]);
+
+        let without = Manifest::from_identities(&identities, None);
+        assert!(!without
+            .to_toml_string()
+            .unwrap()
+            .contains("enable_providers"));
+        assert!(without.projects[0].enable_providers.is_empty());
+    }
+
+    #[test]
+    fn parses_an_explicit_enable_providers_field() {
+        let toml_str = r#"
+            [[project]]
+            identities = ["github:owner/repo"]
+            enable_providers = ["galaxy"]
+        "#;
+        let manifest = Manifest::parse(toml_str).unwrap();
+        assert_eq!(manifest.projects[0].enable_providers, ["galaxy"]);
+    }
+
+    #[test]
     fn legacy_topic_parses_while_plural_exact_and_priority_fields_round_trip() {
         let legacy = Manifest::parse(
             r#"[[project]]
@@ -340,6 +385,7 @@ topic = "legacy"
             let manifest = Manifest::from_identities_with_selection(
                 &[Identity::parse("github:owner/repo").unwrap()],
                 selection.clone(),
+                &[],
             );
             let toml = manifest.to_toml_string().unwrap();
             let parsed = Manifest::parse(&toml).unwrap();

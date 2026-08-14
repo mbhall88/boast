@@ -1,0 +1,74 @@
+[
+  {
+    "Suite ID": "rasusa",
+    "Homepage": "https://github.com/mbhall88/rasusa",
+    "Suite owner": "iuc",
+    "Suite source": "https://github.com/galaxyproject/tools-iuc/tree/main/tools/rasusa",
+    "Number of tools on UseGalaxy.org (Main)": 0,
+    "Number of tools on UseGalaxy.org.au": 0,
+    "Number of tools on UseGalaxy.eu": 1,
+    "Number of tools on UseGalaxy.fr": 1,
+    "Suite runs on main servers": 104,
+    "Suite users on main servers": 24
+  },
+  {
+    "Suite ID": "shovill",
+    "Homepage": "https://github.com/tseemann/shovill",
+    "Suite owner": "iuc",
+    "Suite source": "https://github.com/galaxyproject/tools-iuc/tree/main/tools/shovill",
+    "Number of tools on UseGalaxy.org (Main)": 1,
+    "Number of tools on UseGalaxy.org.au": 1,
+    "Number of tools on UseGalaxy.eu": 1,
+    "Number of tools on UseGalaxy.fr": 1,
+    "Suite runs on main servers": 176227,
+    "Suite users on main servers": 10455
+  },
+  {
+    "Suite ID": "toolx-align",
+    "Homepage": "https://github.com/owner/toolx",
+    "Suite owner": "example",
+    "Suite source": "https://github.com/galaxyproject/tools-iuc/tree/main/tools/toolx-align",
+    "Number of tools on UseGalaxy.org (Main)": 1,
+    "Number of tools on UseGalaxy.org.au": 0,
+    "Number of tools on UseGalaxy.eu": 1,
+    "Number of tools on UseGalaxy.fr": 0,
+    "Suite runs on main servers": 100,
+    "Suite users on main servers": 10
+  },
+  {
+    "Suite ID": "toolx-call",
+    "Homepage": "https://github.com/owner/toolx",
+    "Suite owner": "example",
+    "Suite source": "https://github.com/galaxyproject/tools-iuc/tree/main/tools/toolx-call",
+    "Number of tools on UseGalaxy.org (Main)": 0,
+    "Number of tools on UseGalaxy.org.au": 0,
+    "Number of tools on UseGalaxy.eu": 0,
+    "Number of tools on UseGalaxy.fr": 1,
+    "Suite runs on main servers": 50,
+    "Suite users on main servers": 40
+  },
+  {
+    "Suite ID": "unrelated-tool",
+    "Homepage": "https://etetoolkit.org/docs/latest",
+    "Suite owner": "example",
+    "Suite source": "https://github.com/galaxyproject/tools-iuc/tree/main/tools/unrelated",
+    "Number of tools on UseGalaxy.org (Main)": 1,
+    "Number of tools on UseGalaxy.org.au": 1,
+    "Number of tools on UseGalaxy.eu": 1,
+    "Number of tools on UseGalaxy.fr": 1,
+    "Suite runs on main servers": 999,
+    "Suite users on main servers": 999
+  },
+  {
+    "Suite ID": "no-homepage-tool",
+    "Homepage": null,
+    "Suite owner": "example",
+    "Suite source": "https://github.com/galaxyproject/tools-iuc/tree/main/tools/no-homepage",
+    "Number of tools on UseGalaxy.org (Main)": 1,
+    "Number of tools on UseGalaxy.org.au": 0,
+    "Number of tools on UseGalaxy.eu": 0,
+    "Number of tools on UseGalaxy.fr": 0,
+    "Suite runs on main servers": 1,
+    "Suite users on main servers": 1
+  }
+]

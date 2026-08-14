@@ -62,6 +62,8 @@ Options:
           Print the report but do not write a Snapshot file
   -s, --save <FILE>
           After fetching, also write a Manifest reflecting the identities and Cohort selection used in this run, so a future run can `boast about <file>` instead of re-typing them. Not available when the input is itself a Manifest — use `boast init` to build one up front instead
+  -e, --enable-provider <NAME>
+          Enable an optional Provider by name (repeatable), e.g. `galaxy`. Off by default (see `boast providers`' DEFAULT column) — an unknown name is a usage error. Overrides, rather than adds to, a Manifest input's own `enable_providers` for every Project it runs
   -j, --threads <N>
           Maximum number of distinct hosts fetched from concurrently. Never more than one request is in flight against the *same* host no matter how high this is set (ADR-0007). Raising it past the number of hosts a Project actually touches (at most the Provider registry's size, ~13 by default) buys nothing; lower it to open fewer simultaneous connections [default: 8]
   -h, --help
@@ -145,10 +147,11 @@ Options:
   -f, --from-file <FILE>         Read identifiers from a file (one per line; `#` comments and blank lines ignored). Use `-` for stdin. Repeatable
   -t, --topic <TOPIC>            Exact GitHub Cohorts to record in the Manifest, in argument order
       --priority-topic <TOPIC>   Declared GitHub Cohorts to prioritise in the Manifest, in argument order
-  -o, --output <FILE>            Where to write the Manifest [default: manifest.toml]
+  -e, --enable-provider <NAME>   Optional Providers to record in the Manifest's `enable_providers` (repeatable), e.g. `galaxy`. An unknown name is a usage error
   -v, --verbose...               Increase logging verbosity (-v info, -vv debug, -vvv trace)
-  -O, --orcid <ORCID>            Expand a researcher's ORCID iD (bare, `orcid:`-prefixed, or an orcid.org URL) into a Manifest of every work with a DOI or PMID, one Project per work (ADR-0006; repeatable). **Performs a network fetch** — unlike the rest of `init`, which is otherwise offline. Exclusive with positionals/`--repo`/`--package`/`--from-file`: an ORCID expansion has no defensible answer to "which of these works does that repo belong to?"
+  -o, --output <FILE>            Where to write the Manifest [default: manifest.toml]
   -q, --quiet                    Silence all logging except errors
+  -O, --orcid <ORCID>            Expand a researcher's ORCID iD (bare, `orcid:`-prefixed, or an orcid.org URL) into a Manifest of every work with a DOI or PMID, one Project per work (ADR-0006; repeatable). **Performs a network fetch** — unlike the rest of `init`, which is otherwise offline. Exclusive with positionals/`--repo`/`--package`/`--from-file`: an ORCID expansion has no defensible answer to "which of these works does that repo belong to?"
   -u, --include-unidentified     With `--orcid`, also list works with neither a DOI nor a PMID (and so were skipped) as commented-out `[[project]]` blocks you can fill in by hand. Off by default: most ORCID records carry many such works
   -h, --help                     Print help
 ```

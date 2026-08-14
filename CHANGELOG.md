@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/mbhall88/boast/compare/0.5.0...0.6.0) (2026-08-14)
+
+
+### Features
+
+* add an opt-in Galaxy CoDex Provider for tool-execution usage ([#79](https://github.com/mbhall88/boast/issues/79)) ([#86](https://github.com/mbhall88/boast/issues/86)) ([68b9eca](https://github.com/mbhall88/boast/commit/68b9ecae5408323550e165386a1b7b5db51b8e66))
+
 ## [0.5.0](https://github.com/mbhall88/boast/compare/0.4.0...0.5.0) (2026-08-10)
 
 

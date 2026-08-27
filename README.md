@@ -1,5 +1,8 @@
 # boast
 
+[![CI](https://img.shields.io/github/actions/workflow/status/mbhall88/boast/ci.yml?branch=main&label=CI)](https://github.com/mbhall88/boast/actions/workflows/ci.yml)
+[![License](https://img.shields.io/crates/l/boast)](LICENSE)
+
 ```
 boast about --repo lh3/minimap2
 ```

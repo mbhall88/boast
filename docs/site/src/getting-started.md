@@ -20,6 +20,12 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mbhall88/boast/releases
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/mbhall88/boast/releases/latest/download/boast-installer.ps1 | iex"
 ```
 
+### conda-forge
+
+```
+conda install -c conda-forge boast
+```
+
 ### Docker
 
 ```

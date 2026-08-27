@@ -60,10 +60,6 @@ totals that never mix incompatible time windows.
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mbhall88/boast/releases/latest/download/boast-installer.sh | sh
 ```
 
-```
-conda install -c conda-forge boast
-```
-
 Homebrew, a PowerShell installer script, Docker, cargo, conda-forge, and prebuilt binaries
 for every platform are all covered on the
 [docs site](https://mbhall88.github.io/boast/getting-started.html), along with everything

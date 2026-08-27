@@ -1,5 +1,12 @@
 # Getting started
 
+[![Crates.io](https://img.shields.io/crates/v/boast?logo=rust&label=crates.io)](https://crates.io/crates/boast)
+[![Conda-Forge](https://img.shields.io/conda/vn/conda-forge/boast?logo=anaconda&label=conda-forge)](https://anaconda.org/conda-forge/boast)
+[![Crates.io downloads](https://img.shields.io/crates/d/boast?label=crates.io%20downloads)](https://crates.io/crates/boast)
+[![Conda-Forge downloads](https://img.shields.io/conda/dn/conda-forge/boast?label=conda-forge%20downloads)](https://anaconda.org/conda-forge/boast)
+[![CI](https://img.shields.io/github/actions/workflow/status/mbhall88/boast/ci.yml?branch=main&label=CI)](https://github.com/mbhall88/boast/actions/workflows/ci.yml)
+[![License](https://img.shields.io/crates/l/boast)](https://github.com/mbhall88/boast/blob/main/LICENSE)
+
 ## Install
 
 ### Homebrew (macOS/Linux)

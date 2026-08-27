@@ -20,6 +20,15 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mbhall88/boast/releases
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/mbhall88/boast/releases/latest/download/boast-installer.ps1 | iex"
 ```
 
+### conda-forge
+
+[![Conda-Forge](https://img.shields.io/conda/vn/conda-forge/boast?logo=anaconda&label=conda-forge)](https://anaconda.org/conda-forge/boast)
+[![Conda-Forge downloads](https://img.shields.io/conda/dn/conda-forge/boast?label=conda-forge%20downloads)](https://anaconda.org/conda-forge/boast)
+
+```
+conda install -c conda-forge boast
+```
+
 ### Docker
 
 ```
@@ -27,6 +36,9 @@ docker run --rm ghcr.io/mbhall88/boast:latest about 10.1234/journal.xyz
 ```
 
 ### cargo
+
+[![Crates.io](https://img.shields.io/crates/v/boast?logo=rust&label=crates.io)](https://crates.io/crates/boast)
+[![Crates.io downloads](https://img.shields.io/crates/d/boast?label=crates.io%20downloads)](https://crates.io/crates/boast)
 
 ```
 cargo install boast --locked

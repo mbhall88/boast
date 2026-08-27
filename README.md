@@ -1,5 +1,8 @@
 # boast
 
+[![CI](https://img.shields.io/github/actions/workflow/status/mbhall88/boast/ci.yml?branch=main&label=CI)](https://github.com/mbhall88/boast/actions/workflows/ci.yml)
+[![License](https://img.shields.io/crates/l/boast)](LICENSE)
+
 ```
 boast about --repo lh3/minimap2
 ```
@@ -37,8 +40,8 @@ self-mentions and separate article/preprint versions can count.
 
 A reproducible research impact aggregator. Point `boast` at a **Project** — a piece of
 research software identified by any of a code repository, distribution packages, and/or a
-paper — and it gathers reach **Metrics** across four **Categories** (Code, Downloads,
-Citations, Attention) from a curated set of pluggable **Providers**, records them in a
+paper — and it gathers reach **Metrics** across five **Categories** (Code, Downloads,
+Usage, Citations, Attention) from a curated set of pluggable **Providers**, records them in a
 durable, timestamped **Snapshot** with full provenance, and renders **Reports** for grant
 writing (terminal, Markdown, and an automatically written prose sentence).
 
@@ -53,8 +56,8 @@ totals that never mix incompatible time windows.
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mbhall88/boast/releases/latest/download/boast-installer.sh | sh
 ```
 
-Homebrew, a PowerShell installer script, Docker, cargo, and prebuilt binaries for every
-platform are all covered on the
+Homebrew, a PowerShell installer script, Docker, cargo, conda-forge, and prebuilt binaries
+for every platform are all covered on the
 [docs site](https://mbhall88.github.io/boast/getting-started.html), along with everything
 else: concepts, guides, the Providers and CLI reference, automating snapshots in CI, and the
 design decisions behind how boast works.

@@ -1,0 +1,368 @@
+{
+  "schema_version": 3,
+  "tool": "boast",
+  "tool_version": "0.6.0",
+  "created_at": "2026-10-01T09:43:55.926849882Z",
+  "identities": [
+    "github:mbhall88/boast",
+    "crates:boast"
+  ],
+  "results": [
+    {
+      "provider": "openalex",
+      "identity": "github:mbhall88/boast",
+      "category": "citations",
+      "outcome": {
+        "status": "values",
+        "metrics": [
+          {
+            "name": "mentions",
+            "category": "attention",
+            "value": {
+              "type": "count",
+              "value": 0
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "openalex",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.978390662Z",
+            "source": "https://api.openalex.org/works?filter=fulltext.search%3A%22github.com%2Fmbhall88%2Fboast%22%2Ctype%3Aarticle%7Cpreprint&per-page=1&select=id",
+            "note": "indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage; self-mentions are included; article/preprint versions may be counted separately"
+          }
+        ]
+      }
+    },
+    {
+      "provider": "europe_pmc",
+      "identity": "github:mbhall88/boast",
+      "category": "citations",
+      "outcome": {
+        "status": "values",
+        "metrics": [
+          {
+            "name": "mentions",
+            "category": "attention",
+            "value": {
+              "type": "count",
+              "value": 0
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "europe_pmc",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:49.569698513Z",
+            "source": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=%22github.com%2Fmbhall88%2Fboast%22%20AND%20%28SRC%3AMED%20OR%20SRC%3APPR%29&pageSize=1&resultType=idlist&format=json",
+            "note": "indexed full-text search estimate, not a formal citation or verified literal URL count; partial coverage concentrated in life-sciences literature; self-mentions are included; journal article/preprint versions may be counted separately"
+          }
+        ]
+      }
+    },
+    {
+      "provider": "github",
+      "identity": "github:mbhall88/boast",
+      "category": "code",
+      "outcome": {
+        "status": "values",
+        "metrics": [
+          {
+            "name": "stars",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 26
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/repos/mbhall88/boast"
+          },
+          {
+            "name": "forks",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 1
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/repos/mbhall88/boast"
+          },
+          {
+            "name": "watchers",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 1
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/repos/mbhall88/boast",
+            "note": "users watching the repo (subscribers)"
+          },
+          {
+            "name": "repo_age_years",
+            "category": "code",
+            "value": {
+              "type": "real",
+              "value": 0.2122651278931224
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/repos/mbhall88/boast",
+            "note": "since 2026-07-15"
+          },
+          {
+            "name": "contributors",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 2
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/repos/mbhall88/boast/contributors?per_page=1&anon=true"
+          },
+          {
+            "name": "release_downloads",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 137
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/repos/mbhall88/boast/releases?per_page=100",
+            "note": "summed across release assets"
+          },
+          {
+            "name": "cohort_rank (altmetrics)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 3
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:altmetrics+stars:%3E26&per_page=1",
+            "note": "#3 of 31 repos tagged 'altmetrics'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (bibliometrics)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 24
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:bibliometrics+stars:%3E26&per_page=1",
+            "note": "#24 of 382 repos tagged 'bibliometrics'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (citations)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 88
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:citations+stars:%3E26&per_page=1",
+            "note": "#88 of 1127 repos tagged 'citations'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (doi)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 48
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:doi+stars:%3E26&per_page=1",
+            "note": "#48 of 497 repos tagged 'doi'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (downloads)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 26
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:downloads+stars:%3E26&per_page=1",
+            "note": "#26 of 515 repos tagged 'downloads'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (grant-writing)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 3
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:grant-writing+stars:%3E26&per_page=1",
+            "note": "#3 of 71 repos tagged 'grant-writing'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (open-science)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 154
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:open-science+stars:%3E26&per_page=1",
+            "note": "#154 of 2535 repos tagged 'open-science'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (orcid)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 8
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:orcid+stars:%3E26&per_page=1",
+            "note": "#8 of 274 repos tagged 'orcid'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (reproducibility)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 226
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:reproducibility+stars:%3E26&per_page=1",
+            "note": "#226 of 4769 repos tagged 'reproducibility'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (research-impact)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 1
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:research-impact+stars:%3E26&per_page=1",
+            "note": "#1 of 7 repos tagged 'research-impact'; GitHub topics are inconsistently applied"
+          },
+          {
+            "name": "cohort_rank (research-software)",
+            "category": "code",
+            "value": {
+              "type": "count",
+              "value": 34
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "github",
+            "identity": "github:mbhall88/boast",
+            "as_of": "2026-10-01T09:43:48.98471862Z",
+            "source": "https://api.github.com/search/repositories?q=topic:research-software+stars:%3E26&per_page=1",
+            "note": "#34 of 1072 repos tagged 'research-software'; GitHub topics are inconsistently applied"
+          }
+        ]
+      }
+    },
+    {
+      "provider": "crates.io",
+      "identity": "crates:boast",
+      "category": "downloads",
+      "outcome": {
+        "status": "values",
+        "metrics": [
+          {
+            "name": "downloads",
+            "category": "downloads",
+            "value": {
+              "type": "count",
+              "value": 155
+            },
+            "window": {
+              "kind": "cumulative"
+            },
+            "provider": "crates.io",
+            "identity": "crates:boast",
+            "as_of": "2026-10-01T09:43:48.78131797Z",
+            "source": "https://crates.io/api/v1/crates/boast"
+          }
+        ]
+      }
+    }
+  ]
+}
